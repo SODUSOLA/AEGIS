@@ -10,6 +10,7 @@ import { logger } from './lib/logger';
 export function createApp(): Application {
   const app = express();
 
+  app.set('trust proxy', true);
   app.use(helmet());
 
   app.use(
