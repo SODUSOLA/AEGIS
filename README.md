@@ -91,7 +91,7 @@ Supported states:
 * React Router
 * Lucide React
 
-### Backend (Planned)
+### Backend
 
 * Node.js
 * Express
