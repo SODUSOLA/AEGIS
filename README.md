@@ -2,256 +2,252 @@
 
 > The Subscription Reliability Layer for Nomba-Powered Businesses
 
-AEGIS is a multi-tenant subscription infrastructure engine built on top of the Nomba API ecosystem. It provides the missing billing layer between payment processing and subscription-based applications, allowing developers to integrate recurring billing without building complex payment lifecycle logic from scratch.
+AEGIS is a managed, multi-tenant subscription infrastructure engine built directly on the Nomba API ecosystem. It sits between Nomba's payment primitives and subscription-based applications — handling the complete billing lifecycle so developers never have to rebuild it from scratch.
 
-The project was developed as part of the **Nomba Infrastructure Hackathon**.
-
----
-
-## Overview
-
-AEGIS handles the complete subscription lifecycle for merchants, including:
-
-* Subscription plan management
-* Customer subscriptions
-* Automated recurring billing
-* Smart retry & dunning workflows
-* Subscription state management
-* Webhook reliability
-* Multi-tenant merchant isolation
-
-Rather than replacing Nomba, AEGIS extends its APIs with infrastructure that subscription-based businesses need in production.
+Built for the **Nomba x DevCareer Hackathon 2026 — Infrastructure Track**.
 
 ---
 
-## Features
+## The Problem
 
-### Plan Management
+Nigerian businesses running recurring billing face a fractured stack. Failed charges go unrecovered. Webhook events arrive late or not at all. Engineers spend sprint cycles rebuilding subscription state logic for every new product. Finance teams reconcile manually. There is no standard, reusable billing layer on top of Nomba.
 
-* Create and manage subscription plans
-* Flexible billing intervals
-* Merchant-scoped plans
-* Prorated plan upgrades and downgrades
+AEGIS is that layer.
 
-### Subscription Engine
+---
 
-* Customer subscription management
-* Automatic state transitions
-* Trial support
-* Subscription history
+## What AEGIS Does
 
-Supported states:
-
-* `TRIALING`
-* `ACTIVE`
-* `PAST_DUE`
-* `SUSPENDED`
-* `CANCELLED`
-* `EXPIRED`
-
-### Billing Engine
-
-* Scheduled recurring billing
-* Tokenized card charging
-* Renewal processing
-* Payment verification
-
-### Retry & Dunning
-
-* Automatic retry scheduling
-* Failure classification
-* Payment recovery workflows
-* Automatic subscription reactivation
-
-### Webhooks
-
-* Inbound webhook processing
-* Outbound merchant webhooks
-* Signed payload verification
-* Retry with exponential backoff
-
-### Multi-Tenant Architecture
-
-* Merchant registration
-* API key authentication
-* Tenant-scoped resources
-* Secure merchant isolation
+- Manages the full subscription lifecycle across six states: `TRIALING` → `ACTIVE` → `PAST_DUE` → `SUSPENDED` → `CANCELLED` → `EXPIRED`
+- Executes automated recurring charges via Nomba's tokenized card API on a cron-based schedule
+- Recovers failed payments through a 3-step intelligent dunning engine with exponential backoff
+- Ingests and deduplicates inbound Nomba webhooks, reconciling against the transaction log for missed events
+- Delivers signed outbound webhook events to merchant-registered endpoints with retry-on-failure
+- Calculates and executes prorated charges on mid-cycle plan changes in real time
+- Serves multiple unrelated merchants on shared infrastructure with strict tenant isolation at the database level
 
 ---
 
 ## Tech Stack
 
 ### Frontend
-
-* React
-* TypeScript
-* Tailwind CSS
-* shadcn/ui
-* Framer Motion
-* React Router
-* Lucide React
+- React 19 + TypeScript
+- TanStack Router (file-based routing with SSR)
+- Tailwind CSS v4
+- shadcn/ui + Radix UI
+- Framer Motion
+- Lucide React
 
 ### Backend
+- Node.js + Express + TypeScript
+- PostgreSQL (primary state store via Prisma)
+- Redis + BullMQ (job scheduling, dunning queues, webhook delivery)
+- Docker + Render (deployment)
 
-* Node.js
-* Express
-* TypeScript
-* PostgreSQL
-* Redis
-* BullMQ
-
-### Integrations
-
-* Nomba Checkout API
-* Nomba Charge API
-* Nomba Tokenization API
-* Nomba Transactions API
-* Nomba Webhooks
+### Nomba Integrations
+- Checkout API
+- Tokenization API
+- Charge API
+- Transactions API
+- Webhooks API
 
 ---
 
 ## Project Structure
 
-```text
-src/
-├── app/
-├── components/
-│   ├── common/
-│   ├── dashboard/
-│   ├── forms/
-│   └── ui/
-├── pages/
-├── hooks/
-├── lib/
-├── services/
-├── types/
-├── utils/
-├── data/
-└── assets/
+```
+AEGIS/
+├── frontend/               # Merchant dashboard + landing page
+│   ├── src/
+│   │   ├── routes/         # TanStack file-based routes
+│   │   ├── components/
+│   │   │   ├── app/        # AppShell, Sidebar, StatusBadge
+│   │   │   ├── auth/       # Auth layout
+│   │   │   └── ui/         # shadcn/ui primitives
+│   │   ├── hooks/
+│   │   └── lib/            # Theme context, utilities
+│   ├── bun.lock
+│   └── vite.config.ts
+│
+└── backend/                # AEGIS API
+    ├── prisma/
+    │   └── schema.prisma
+    └── src/
+        ├── config/
+        ├── db/
+        ├── integrations/   # Nomba API clients
+        ├── lib/            # Errors, logger, response helpers
+        ├── middleware/     # Auth, validation, error handling
+        ├── modules/        # Feature modules (plans, subscriptions, customers, webhooks, merchants)
+        ├── queues/         # BullMQ job definitions
+        ├── routes/         # Route registration
+        ├── services/       # Business logic
+        └── startup/        # App bootstrap
 ```
 
 ---
 
 ## Getting Started
 
-### Clone the repository
+### Prerequisites
+- [Bun](https://bun.sh) v1.0+
+- Node.js v22+
+- PostgreSQL
+- Redis
+
+### Frontend
 
 ```bash
-git clone https://github.com/<username>/aegis.git
-cd aegis
+cd frontend
+bun install
+bun run dev
 ```
 
-### Install dependencies
+### Backend
 
 ```bash
-npm install
-```
-
-### Start the development server
-
-```bash
-npm run dev
-```
-
-### Build for production
-
-```bash
-npm run build
+cd backend
+bun install
+cp .env.example .env     # fill in your credentials
+bun run dev
 ```
 
 ---
 
-## Current Development Status
+## API Reference
 
-This repository currently contains the frontend MVP.
+All endpoints are prefixed with `/api/v1`. Authentication is required via the `x-api-key` header on all routes except merchant registration.
 
-Implemented:
+```
+# Merchants
+POST   /api/v1/merchants/register
+GET    /api/v1/merchants/me
 
-* Dashboard UI
-* Plan management interface
-* Subscription overview
-* Responsive layouts
-* Mock data
-* Component architecture
+# Plans
+POST   /api/v1/plans
+GET    /api/v1/plans
+GET    /api/v1/plans/:id
+PATCH  /api/v1/plans/:id
+DELETE /api/v1/plans/:id
 
-In Progress:
+# Customers
+POST   /api/v1/customers
+GET    /api/v1/customers
+GET    /api/v1/customers/:id
+PATCH  /api/v1/customers/:id
+PATCH  /api/v1/customers/:id/payment-method
+DELETE /api/v1/customers/:id
 
-* Backend API
-* Merchant authentication
-* Database integration
-* Nomba API integration
-* Billing scheduler
-* Webhook processing
+# Subscriptions
+POST   /api/v1/subscriptions
+GET    /api/v1/subscriptions
+GET    /api/v1/subscriptions/:id
+POST   /api/v1/subscriptions/:id/cancel
+POST   /api/v1/subscriptions/:id/change-plan
 
----
+# Webhooks
+POST   /api/v1/webhooks/nomba
 
-## Using Mock Data
-
-The current frontend uses local mock data to simulate backend responses.
-
-This allows UI development to continue independently while backend endpoints are being implemented.
-
-Future integration will replace mock data with API requests without requiring significant UI changes.
-
-Example:
-
-```ts
-// Current
-import { plans } from "@/data/mockPlans";
-
-// Future
-const plans = await api.get("/plans");
+# Health
+GET    /health
 ```
 
----
-
-## Planned API
+### Authentication
 
 ```http
-POST   /plans
-GET    /plans
-GET    /plans/:id
-PATCH  /plans/:id
-DELETE /plans/:id
+x-api-key: ak_live_...
+```
 
-POST   /subscriptions
-GET    /subscriptions
-GET    /subscriptions/:id
+Every merchant receives a scoped API key on registration. Keys follow the format `ak_live_*` for production and `ak_test_*` for sandbox.
 
-GET    /transactions
+---
 
-POST   /webhooks/nomba
-POST   /webhooks/merchant
+## Subscription States
+
+| State | Description | Trigger |
+|---|---|---|
+| `TRIALING` | Free or low-cost trial window | Initial setup with trial params |
+| `ACTIVE` | Fully paid and in good standing | Successful payment |
+| `PAST_DUE` | Payment failed, dunning in progress | Failed charge |
+| `SUSPENDED` | Dunning exhausted, access paused | Max retries reached |
+| `CANCELLED` | Explicitly terminated | Manual cancellation |
+| `EXPIRED` | Reached natural end date | Fixed-term end |
+
+---
+
+## Dunning & Retry Logic
+
+AEGIS runs a 3-step retry schedule on failed charges:
+
+```
+Attempt 1 → Immediate
+Attempt 2 → +24 hours
+Attempt 3 → +72 hours
+```
+
+Failures are classified by type — Insufficient Funds, Expired Card, Network Timeout — and the subscription transitions `ACTIVE → PAST_DUE → SUSPENDED` automatically. Recovery returns the subscription to `ACTIVE` and fires a `charge.recovered` webhook immediately.
+
+---
+
+## Outbound Webhook Events
+
+All outbound payloads are signed with HMAC-SHA256 using a per-merchant secret.
+
+| Event | Trigger |
+|---|---|
+| `subscription.activated` | Subscription moves to ACTIVE |
+| `subscription.past_due` | Charge fails, dunning starts |
+| `subscription.suspended` | Max retries reached |
+| `subscription.canceled` | Subscription cancelled |
+| `charge.succeeded` | Payment confirmed |
+| `charge.failed` | Payment rejected |
+| `charge.recovered` | Retry succeeds |
+| `dunning.started` | First retry attempt triggered |
+| `plan.changed` | Mid-cycle plan upgrade/downgrade |
+
+---
+
+## Proration Formula
+
+When a customer changes plans mid-cycle, AEGIS calculates and charges the prorated difference immediately:
+
+```
+A_prorated = (A_new - A_old) × (D_remaining / D_total)
+```
+
+Where `D_remaining` is the fractional days left in the current billing period and `D_total` is the total days in the cycle.
+
+---
+
+## Environment Variables
+
+```env
+# Database
+DATABASE_URL=
+
+# Redis
+REDIS_URL=
+
+# Nomba
+NOMBA_ACCOUNT_ID=
+NOMBA_SUB_ACCOUNT_ID=
+NOMBA_CLIENT_ID=
+NOMBA_PRIVATE_KEY=
+NOMBA_WEBHOOK_SECRET=
+
+# App
+PORT=3000
+NODE_ENV=development
 ```
 
 ---
 
-## Roadmap
+## Team
 
-* Merchant onboarding
-* Plan CRUD
-* Customer management
-* Subscription lifecycle engine
-* Recurring billing scheduler
-* Smart retry & dunning
-* Webhook reconciliation
-* Analytics dashboard
-* Customer self-service portal
-* SDK for merchant integrations
-
----
-
-## Contributing
-
-Contributions are welcome.
-
-1. Fork the repository.
-2. Create a feature branch.
-3. Commit your changes.
-4. Open a pull request.
+Built by **KR38S** for the Nomba x DevCareer Hackathon 2026.
 
 ---
 
 ## License
 
-This project was developed for the Nomba Infrastructure Hackathon and is intended as a demonstration of subscription infrastructure built on the Nomba platform.
+Built for the Nomba x DevCareer Hackathon 2026. Demonstration purposes.
