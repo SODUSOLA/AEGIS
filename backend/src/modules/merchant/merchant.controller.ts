@@ -4,6 +4,7 @@ import { registerMerchant, getMerchantById } from './merchant.service';
 import { successResponse } from '../../lib/response';
 import { NotFoundError, UnauthorizedError } from '../../lib/errors';
 
+/** Register a new merchant account. Returns the merchant profile + the raw API key (one-time). */
 export async function handleRegisterMerchant(
   req: Request,
   res: Response,
@@ -27,6 +28,7 @@ export async function handleRegisterMerchant(
   }
 }
 
+/** Fetch the authenticated merchant's own profile. */
 export async function handleGetMerchantProfile(
   req: Request,
   res: Response,

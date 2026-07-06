@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 dotenv.config();
 
+/** Zod schema that validates and transforms all required environment variables. */
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.string().default('3000').transform(Number),
@@ -38,6 +39,7 @@ const envSchema = z.object({
   UPTIME_PING_INTERVAL_SECONDS: z.string().default('300').transform(Number),
 });
 
+// Parse and exit immediately if required vars are missing or invalid
 const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
@@ -46,4 +48,5 @@ if (!parsed.success) {
   process.exit(1);
 }
 
+/** Validated, typed environment configuration singleton. */
 export const env = parsed.data;

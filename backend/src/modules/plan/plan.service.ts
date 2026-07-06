@@ -5,6 +5,9 @@ import { getPrismaSkipTake, buildPaginationMeta } from '../../lib/pagination';
 import { CreatePlanInput, UpdatePlanInput } from './plan.schema';
 import { logger } from '../../lib/logger';
 
+// ─── Select Fragments ──────────────────────────────
+
+/** Fields returned in plan list responses (no _count). */
 const PLAN_LIST_SELECT = {
   id: true,
   name: true,
@@ -20,6 +23,7 @@ const PLAN_LIST_SELECT = {
 
 const ACTIVE_STATUSES: SubscriptionStatus[] = ['TRIALING', 'ACTIVE', 'PAST_DUE'];
 
+/** Full plan detail including active-subscription count. */
 const PLAN_DETAIL_SELECT = {
   ...PLAN_LIST_SELECT,
   _count: {
@@ -34,6 +38,9 @@ const PLAN_DETAIL_SELECT = {
   },
 };
 
+// ─── Service Functions ─────────────────────────────
+
+/** Create a new pricing plan. Enforces unique plan names per merchant (case-insensitive). */
 export async function createPlan(merchantId: string, input: CreatePlanInput) {
   const existing = await prisma.plan.findFirst({
     where: {
@@ -65,6 +72,7 @@ export async function createPlan(merchantId: string, input: CreatePlanInput) {
   return plan;
 }
 
+/** List plans for a merchant with pagination and optional isActive filter. */
 export async function listPlans(
   merchantId: string,
   page: number,
@@ -93,6 +101,7 @@ export async function listPlans(
   };
 }
 
+/** Fetch a single plan by ID. Throws NotFoundError if missing or deleted. */
 export async function getPlanById(merchantId: string, planId: string) {
   const plan = await prisma.plan.findFirst({
     where: { id: planId, merchantId, isDeleted: false },
@@ -106,6 +115,7 @@ export async function getPlanById(merchantId: string, planId: string) {
   return plan;
 }
 
+/** Update a plan's name, description, or active status. Rejects duplicate names within the same merchant. */
 export async function updatePlan(merchantId: string, planId: string, input: UpdatePlanInput) {
   const plan = await prisma.plan.findFirst({
     where: { id: planId, merchantId, isDeleted: false },
@@ -146,6 +156,7 @@ export async function updatePlan(merchantId: string, planId: string, input: Upda
   return updated;
 }
 
+/** Soft-delete (archive) a plan. Blocked if the plan still has active subscriptions. */
 export async function archivePlan(merchantId: string, planId: string) {
   const plan = await prisma.plan.findFirst({
     where: { id: planId, merchantId, isDeleted: false },

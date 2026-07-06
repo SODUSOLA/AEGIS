@@ -14,6 +14,7 @@ import {
 import { successResponse } from '../../lib/response';
 import { UnauthorizedError } from '../../lib/errors';
 
+/** GET /dunning — list at-risk subscriptions for the authenticated merchant. */
 export async function handleListDunning(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.merchant) throw new UnauthorizedError();
@@ -23,6 +24,7 @@ export async function handleListDunning(req: Request, res: Response, next: NextF
   } catch (error) { next(error); }
 }
 
+/** GET /dunning/:subscriptionId — fetch full dunning detail for a specific subscription. */
 export async function handleGetDunningDetail(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.merchant) throw new UnauthorizedError();
@@ -32,6 +34,7 @@ export async function handleGetDunningDetail(req: Request, res: Response, next: 
   } catch (error) { next(error); }
 }
 
+/** POST /dunning/:subscriptionId/retry — manually trigger a retry charge for a PAST_DUE subscription. */
 export async function handleManualRetry(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.merchant) throw new UnauthorizedError();
@@ -41,6 +44,7 @@ export async function handleManualRetry(req: Request, res: Response, next: NextF
   } catch (error) { next(error); }
 }
 
+/** POST /dunning/:subscriptionId/reactivate — reactivate a SUSPENDED subscription with a reason. */
 export async function handleManualReactivate(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.merchant) throw new UnauthorizedError();

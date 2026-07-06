@@ -5,6 +5,9 @@ import { executeCharge } from '../../services/charge.service';
 import { env } from '../../config/env';
 import { logger } from '../../lib/logger';
 
+// ─── Proration Worker ───────────────────────────────
+
+/** Start the proration worker. Charges the prorated adjustment amount for plan upgrades. */
 export function startProrationWorker(): Worker<ProrationJobData> {
   const prorationWorker = new Worker<ProrationJobData>(
     QUEUE_NAMES.BILLING_PRORATION,
@@ -18,6 +21,7 @@ export function startProrationWorker(): Worker<ProrationJobData> {
         newPlanId,
       });
 
+      // Negative or zero adjustment means a downgrade or no-op — no charge needed
       if (adjustmentKobo <= 0) {
         logger.info('Proration job skipped — no charge required (downgrade or no-op)', {
           subscriptionId,

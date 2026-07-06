@@ -9,6 +9,8 @@ import {
   handleListDeliveries,
 } from './outbound.controller';
 
+// ─── Outbound Webhook Routes ─────────────────────────
+
 const router = Router();
 router.use(authMiddleware);
 

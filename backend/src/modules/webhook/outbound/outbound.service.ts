@@ -6,6 +6,9 @@ import { CreateEndpointInput, UpdateEndpointInput } from './outbound.schema';
 import { logger } from '../../../lib/logger';
 import { WEBHOOK_SECRET_PREFIX } from '../../../config/constants';
 
+// ─── Endpoint CRUD ───────────────────────────────────
+
+/** Create a new webhook endpoint with a generated HMAC secret. Rejects duplicate URLs per merchant. */
 export async function createWebhookEndpoint(
   merchantId: string,
   input: CreateEndpointInput,
@@ -59,6 +62,7 @@ export async function createWebhookEndpoint(
   };
 }
 
+/** Paginated list of webhook endpoints for a merchant, with delivery count. */
 export async function listWebhookEndpoints(
   merchantId: string,
   page: number,
@@ -93,6 +97,7 @@ export async function listWebhookEndpoints(
   };
 }
 
+/** Get a single webhook endpoint by ID. Throws NotFoundError if not found or soft-deleted. */
 export async function getWebhookEndpoint(merchantId: string, endpointId: string) {
   const endpoint = await prisma.webhookEndpoint.findFirst({
     where: { id: endpointId, merchantId, isDeleted: false },
@@ -111,6 +116,7 @@ export async function getWebhookEndpoint(merchantId: string, endpointId: string)
   return endpoint;
 }
 
+/** Partial update of a webhook endpoint (URL, events, description, status). */
 export async function updateWebhookEndpoint(
   merchantId: string,
   endpointId: string,
@@ -145,6 +151,7 @@ export async function updateWebhookEndpoint(
   return updated;
 }
 
+/** Soft-delete a webhook endpoint (sets isDeleted + DISABLED). */
 export async function deleteWebhookEndpoint(merchantId: string, endpointId: string) {
   const endpoint = await prisma.webhookEndpoint.findFirst({
     where: { id: endpointId, merchantId, isDeleted: false },
@@ -161,6 +168,7 @@ export async function deleteWebhookEndpoint(merchantId: string, endpointId: stri
   logger.info('Webhook endpoint deleted', { merchantId, endpointId });
 }
 
+/** Paginated delivery logs for a webhook endpoint, optionally filtered by status. */
 export async function listWebhookDeliveries(
   merchantId: string,
   endpointId: string,

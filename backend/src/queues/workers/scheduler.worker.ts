@@ -6,8 +6,11 @@ import { prisma } from '../../db/prisma';
 import { env } from '../../config/env';
 import { logger } from '../../lib/logger';
 
+// ─── Scheduler Worker ───────────────────────────────
+
 const BATCH_SIZE = 100;
 
+/** Start the billing scheduler worker. Scans for due subscriptions and enqueues renewal jobs. */
 export function startSchedulerWorker(): Worker {
   const schedulerWorker = new Worker(
     QUEUE_NAMES.BILLING_SCHEDULER,
@@ -16,6 +19,7 @@ export function startSchedulerWorker(): Worker {
 
       const now = new Date();
 
+      // Fetch ACTIVE/TRIALING subscriptions whose period has ended
       const dueSubscriptions = await prisma.subscription.findMany({
         where: {
           isDeleted: false,
@@ -78,11 +82,15 @@ export function startSchedulerWorker(): Worker {
   return schedulerWorker;
 }
 
+// ─── Cron Registration ──────────────────────────────
+
+/** Register the recurring cron job that triggers the scheduler at a configurable interval. */
 export async function registerBillingCronJob(): Promise<void> {
   const schedulerQueue = getSchedulerQueue();
 
   const intervalSeconds = env.SCHEDULER_INTERVAL_SECONDS;
 
+  // Remove any previously registered repeatable jobs to avoid duplicates on restart
   const existingRepeatables = await schedulerQueue.getRepeatableJobs();
   for (const job of existingRepeatables) {
     await schedulerQueue.removeRepeatableByKey(job.key);

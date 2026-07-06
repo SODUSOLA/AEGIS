@@ -1,9 +1,13 @@
+// ─── API Key / Webhook Prefixes ───────────────────────
+
 export const API_KEY_PREFIX = 'ak_live_' as const;
 export const API_KEY_TEST_PREFIX = 'ak_test_' as const;
 export const WEBHOOK_SECRET_PREFIX = 'whsec_' as const;
 
 export const API_KEY_BYTE_LENGTH = 32;
 export const WEBHOOK_SECRET_BYTE_LENGTH = 32;
+
+// ─── Domain Enums ─────────────────────────────────────
 
 export const SUBSCRIPTION_STATUS = {
   TRIALING: 'TRIALING',
@@ -39,11 +43,6 @@ export const WEBHOOK_DELIVERY_STATUS = {
   RETRYING: 'RETRYING',
 } as const;
 
-export const DUNNING = {
-  MAX_RETRY_ATTEMPTS: 3,
-  RETRY_DELAYS_HOURS: [1, 24, 72],
-} as const;
-
 export const CHARGE_TYPE = {
   INITIAL: 'INITIAL',
   RENEWAL: 'RENEWAL',
@@ -51,6 +50,15 @@ export const CHARGE_TYPE = {
   PRORATION: 'PRORATION',
 } as const;
 
+// ─── Operational Constants ────────────────────────────
+
+/** Dunning (payment recovery) retry configuration. */
+export const DUNNING = {
+  MAX_RETRY_ATTEMPTS: 3,
+  RETRY_DELAYS_HOURS: [1, 24, 72],
+} as const;
+
+/** Exponential back-off delays (ms) for webhook delivery retries. */
 export const WEBHOOK_RETRY_DELAYS_MS = [
   0,
   5 * 60 * 1000,

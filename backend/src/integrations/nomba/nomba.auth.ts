@@ -3,18 +3,31 @@ import { env } from '../../config/env';
 import { logger } from '../../lib/logger';
 import { NombaTokenRequest, NombaTokenResponse, NombaRefreshTokenRequest } from './nomba.types';
 
+// ─── Token Cache Keys ─────────────────────────────────
+
 const ACCESS_TOKEN_KEY = 'nomba:access_token';
 const REFRESH_TOKEN_KEY = 'nomba:refresh_token';
 
+// ─── Constants ────────────────────────────────────────
+
+/** Seconds subtracted from the real TTL to avoid using a token right at expiry. */
 const REFRESH_BUFFER_SECONDS = 300;
 const AUTH_TIMEOUT_MS = 15_000;
 
+// ─── Public API ───────────────────────────────────────
+
+/**
+ * Returns a valid Nomba access token, trying cache → refresh → client_credentials
+ * in that order.
+ */
 export async function getNombaAccessToken(): Promise<string> {
   const redis = getRedisClient();
 
+  // Fast path: use cached access token if still valid
   const cached = await redis.get(ACCESS_TOKEN_KEY);
   if (cached) return cached;
 
+  // Second path: try to refresh using the stored refresh token
   const refreshToken = await redis.get(REFRESH_TOKEN_KEY);
   if (refreshToken) {
     try {
@@ -24,9 +37,13 @@ export async function getNombaAccessToken(): Promise<string> {
     }
   }
 
+  // Fallback: fresh client-credentials grant
   return await authenticateWithCredentials();
 }
 
+// ─── Internal Helpers ─────────────────────────────────
+
+/** Performs a client_credentials OAuth2 grant against Nomba's token endpoint. */
 async function authenticateWithCredentials(): Promise<string> {
   const redis = getRedisClient();
 
@@ -70,6 +87,7 @@ async function authenticateWithCredentials(): Promise<string> {
   return data.data.access_token;
 }
 
+/** Uses a stored refresh token to get a new access token without re-entering credentials. */
 async function refreshAccessToken(refreshToken: string): Promise<string> {
   const redis = getRedisClient();
   const currentToken = await redis.get(ACCESS_TOKEN_KEY);
@@ -114,6 +132,7 @@ async function refreshAccessToken(refreshToken: string): Promise<string> {
   return data.data.access_token;
 }
 
+/** Persists tokens to Redis with appropriate TTLs. */
 async function cacheTokens(
   redis: ReturnType<typeof getRedisClient>,
   accessToken: string,
@@ -121,6 +140,7 @@ async function cacheTokens(
   expiresAt: string,
 ): Promise<void> {
   const expiryMs = new Date(expiresAt).getTime() - Date.now();
+  // Shave off buffer seconds so we never attempt a request with an about-to-expire token
   const ttlSeconds = Math.max(Math.floor(expiryMs / 1000) - REFRESH_BUFFER_SECONDS, 60);
 
   await Promise.all([
@@ -131,6 +151,7 @@ async function cacheTokens(
   logger.debug('Nomba tokens cached', { accessTokenTtlSeconds: ttlSeconds });
 }
 
+/** Invalidates cached tokens so the next request forces fresh authentication. */
 export async function invalidateNombaTokens(): Promise<void> {
   const redis = getRedisClient();
   await Promise.all([redis.del(ACCESS_TOKEN_KEY), redis.del(REFRESH_TOKEN_KEY)]);

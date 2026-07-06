@@ -4,12 +4,17 @@ import { AppError, ValidationError } from '../lib/errors';
 import { logger } from '../lib/logger';
 import { errorResponse } from '../lib/response';
 
+/**
+ * Global Express error handler.
+ * Catches ZodError (422), AppError (dynamic status), and unknown errors (500).
+ */
 export function errorMiddleware(
   err: Error,
   req: Request,
   res: Response,
   _next: NextFunction,
 ): void {
+  // Zod schema validation failures
   if (err instanceof ZodError) {
     res.status(422).json(
       errorResponse('Validation failed', {
@@ -22,7 +27,9 @@ export function errorMiddleware(
     return;
   }
 
+  // Known application errors
   if (err instanceof AppError) {
+    // Log 5xx operational errors since they indicate server-side issues
     if (err.statusCode >= 500) {
       logger.error('Operational error', {
         message: err.message,
@@ -41,6 +48,7 @@ export function errorMiddleware(
     return;
   }
 
+  // Unexpected / programmer errors — log full stack, return generic message
   logger.error('Unexpected error', {
     message: err.message,
     stack: err.stack,

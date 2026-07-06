@@ -16,6 +16,7 @@ import {
 import { successResponse } from '../../lib/response';
 import { UnauthorizedError } from '../../lib/errors';
 
+/** Create a new subscription linking a customer to a plan. */
 export async function handleCreateSubscription(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.merchant) throw new UnauthorizedError();
@@ -27,6 +28,7 @@ export async function handleCreateSubscription(req: Request, res: Response, next
   }
 }
 
+/** List subscriptions with pagination and optional status/customerId/planId filters. */
 export async function handleListSubscriptions(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.merchant) throw new UnauthorizedError();
@@ -39,6 +41,7 @@ export async function handleListSubscriptions(req: Request, res: Response, next:
   }
 }
 
+/** Fetch a single subscription by ID with full detail and event history. */
 export async function handleGetSubscription(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.merchant) throw new UnauthorizedError();
@@ -50,6 +53,7 @@ export async function handleGetSubscription(req: Request, res: Response, next: N
   }
 }
 
+/** Cancel an active/trialing/past-due subscription. */
 export async function handleCancelSubscription(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.merchant) throw new UnauthorizedError();
@@ -61,6 +65,7 @@ export async function handleCancelSubscription(req: Request, res: Response, next
   }
 }
 
+/** Change the plan on an active subscription with proration. */
 export async function handleChangePlan(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.merchant) throw new UnauthorizedError();

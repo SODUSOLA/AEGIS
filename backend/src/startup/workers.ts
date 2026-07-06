@@ -9,6 +9,7 @@ import { logger } from '../lib/logger';
 
 let _workers: Worker[] = [];
 
+/** Starts every BullMQ worker and registers recurring cron jobs. */
 export async function startAllWorkers(): Promise<void> {
   logger.info('Starting AEGIS background workers...');
 
@@ -34,6 +35,7 @@ export async function startAllWorkers(): Promise<void> {
   }
 }
 
+/** Gracefully stops all workers and the uptime pinger. */
 export async function stopAllWorkers(): Promise<void> {
   logger.info('Stopping all background workers...');
 

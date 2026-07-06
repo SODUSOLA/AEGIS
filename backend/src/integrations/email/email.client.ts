@@ -3,8 +3,11 @@ import { env } from '../../config/env';
 import { logger } from '../../lib/logger';
 import { SendEmailOptions } from './email.types';
 
+// ─── SMTP Transporter (lazy singleton) ────────────────
+
 let _transporter: Transporter | null = null;
 
+/** Returns the cached SMTP transporter, creating it on first call. */
 function getTransporter(): Transporter {
   if (!_transporter) {
     _transporter = nodemailer.createTransport({
@@ -32,6 +35,12 @@ function getTransporter(): Transporter {
   return _transporter;
 }
 
+// ─── Public API ───────────────────────────────────────
+
+/**
+ * Sends a transactional email via the configured SMTP transport.
+ * Failures are logged but never thrown — billing flow must not be blocked by email.
+ */
 export async function sendEmail(options: SendEmailOptions): Promise<void> {
   const transporter = getTransporter();
   try {
@@ -55,6 +64,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<void> {
   }
 }
 
+/** Verifies the SMTP connection is alive (used at startup / health-check). */
 export async function verifyEmailConnection(): Promise<boolean> {
   try {
     await getTransporter().verify();
@@ -68,6 +78,7 @@ export async function verifyEmailConnection(): Promise<boolean> {
   }
 }
 
+/** Gracefully closes the SMTP connection pool (e.g. during shutdown). */
 export function closeEmailTransporter(): void {
   if (_transporter) {
     _transporter.close();

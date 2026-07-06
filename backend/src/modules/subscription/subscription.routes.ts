@@ -10,6 +10,7 @@ import {
 
 const router = Router();
 
+// All subscription routes require API key authentication.
 router.use(authMiddleware);
 
 router.post('/', handleCreateSubscription);

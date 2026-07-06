@@ -6,6 +6,9 @@ import { env } from '../../config/env';
 import { logger } from '../../lib/logger';
 import { buildDeliveryHeaders } from '../../modules/webhook/outbound/outbound.signer';
 
+// ─── Webhook Delivery Worker ────────────────────────
+
+/** Retry delay schedule in milliseconds: immediate, 5m, 30m, 2h. */
 const RETRY_DELAYS_MS = [
   0,
   5 * 60 * 1000,
@@ -13,6 +16,7 @@ const RETRY_DELAYS_MS = [
   2 * 60 * 60 * 1000,
 ];
 
+/** Data payload for a webhook delivery job. */
 interface WebhookDeliveryJobData {
   deliveryId: string;
   endpointId: string;
@@ -22,8 +26,10 @@ interface WebhookDeliveryJobData {
   payload: Record<string, unknown>;
 }
 
+/** Timeout for each HTTP delivery attempt. */
 const DELIVERY_TIMEOUT_MS = 10_000;
 
+/** Start the webhook delivery worker. Sends signed POST requests to endpoints with retry logic. */
 export function startWebhookDeliveryWorker(): Worker<WebhookDeliveryJobData> {
   const worker = new Worker<WebhookDeliveryJobData>(
     QUEUE_NAMES.WEBHOOK_OUTBOUND,
@@ -56,6 +62,7 @@ export function startWebhookDeliveryWorker(): Worker<WebhookDeliveryJobData> {
 
       const attemptNumber = delivery.attemptCount + 1;
 
+      // Mark in-flight status before the HTTP call
       await prisma.webhookDelivery.update({
         where: { id: deliveryId },
         data: {
@@ -118,6 +125,7 @@ export function startWebhookDeliveryWorker(): Worker<WebhookDeliveryJobData> {
         return;
       }
 
+      // Determine if we should retry or mark permanently failed
       const maxAttempts = env.WEBHOOK_MAX_DELIVERY_ATTEMPTS;
 
       if (attemptNumber < maxAttempts) {
@@ -134,6 +142,7 @@ export function startWebhookDeliveryWorker(): Worker<WebhookDeliveryJobData> {
           },
         });
 
+        // Enqueue the next attempt with a delay — dynamic import avoids circular dependency
         const { getOutboundWebhookQueue } = await import('../queue.registry');
         await getOutboundWebhookQueue().add(
           'deliver-webhook',

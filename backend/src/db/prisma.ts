@@ -2,10 +2,12 @@ import { PrismaClient } from '@prisma/client';
 import { env } from '../config/env';
 import { logger } from '../lib/logger';
 
+// Hoist PrismaClient onto globalThis in dev to survive hot-reloads
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
+/** Singleton PrismaClient instance. Logs queries in dev, errors-only in production. */
 export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
@@ -16,6 +18,7 @@ export const prisma =
   });
 
 if (env.NODE_ENV === 'development') {
+  // Warn when any query exceeds 200 ms
   prisma.$on('query' as never, (e: Record<string, unknown>) => {
     if (Number(e.duration) > 200) {
       logger.warn('Slow Prisma query detected', {

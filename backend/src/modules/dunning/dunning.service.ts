@@ -8,6 +8,9 @@ import { getPrismaSkipTake, buildPaginationMeta } from '../../lib/pagination';
 import { ListDunningQuery, ManualReactivateInput } from './dunning.schema';
 import { logger } from '../../lib/logger';
 
+// ─── Prisma Select Fragments ─────────────────────────
+
+/** Minimal fields for the list view of at-risk subscriptions. */
 const DUNNING_LIST_SELECT = {
   id: true,
   status: true,
@@ -24,6 +27,7 @@ const DUNNING_LIST_SELECT = {
   },
 } as const;
 
+/** Full detail select including credit balance, cancellation info, and recent events. */
 const DUNNING_DETAIL_SELECT = {
   ...DUNNING_LIST_SELECT,
   balanceCreditKobo: true,
@@ -43,6 +47,9 @@ const DUNNING_DETAIL_SELECT = {
   },
 } as const;
 
+// ─── Service Functions ───────────────────────────────
+
+/** Paginated list of at-risk (PAST_DUE / SUSPENDED) subscriptions for a merchant. */
 export async function listDunningSubscriptions(
   merchantId: string,
   query: ListDunningQuery,
@@ -78,6 +85,7 @@ export async function listDunningSubscriptions(
   };
 }
 
+/** Get full detail for a single at-risk subscription, including recent status events. */
 export async function getDunningDetail(merchantId: string, subscriptionId: string) {
   const subscription = await prisma.subscription.findFirst({
     where: {
@@ -93,6 +101,7 @@ export async function getDunningDetail(merchantId: string, subscriptionId: strin
   return subscription;
 }
 
+/** Enqueue an immediate retry charge for a PAST_DUE subscription. */
 export async function triggerManualRetry(merchantId: string, subscriptionId: string) {
   const subscription = await prisma.subscription.findFirst({
     where: { id: subscriptionId, merchantId, isDeleted: false },
@@ -106,6 +115,7 @@ export async function triggerManualRetry(merchantId: string, subscriptionId: str
 
   if (!subscription) throw new NotFoundError('Subscription');
 
+  // Only PAST_DUE subscriptions can be manually retried
   if (subscription.status !== 'PAST_DUE') {
     throw new ForbiddenError(
       `Manual retry is only available for PAST_DUE subscriptions. ` +
@@ -155,6 +165,7 @@ export async function triggerManualRetry(merchantId: string, subscriptionId: str
   };
 }
 
+/** Reactivate a SUSPENDED subscription with a fresh billing period and reason. */
 export async function manualReactivate(
   merchantId: string,
   subscriptionId: string,

@@ -7,7 +7,15 @@ import { closeAllQueues } from './queues/queue.registry';
 import { startAllWorkers, stopAllWorkers } from './startup/workers';
 import { closeEmailTransporter } from './integrations/email/email.client';
 
+/**
+ * Application entry point.
+ * 1. Connects to the database
+ * 2. Starts background workers
+ * 3. Boots the HTTP server
+ * 4. Registers graceful shutdown handlers
+ */
 async function bootstrap() {
+  // ─── Database ──────────────────────────────────────
   try {
     await prisma.$connect();
     logger.info('Database connection established');
@@ -16,6 +24,7 @@ async function bootstrap() {
     process.exit(1);
   }
 
+  // ─── Workers ───────────────────────────────────────
   try {
     await startAllWorkers();
     logger.info('Background workers started');
@@ -24,6 +33,7 @@ async function bootstrap() {
     process.exit(1);
   }
 
+  // ─── HTTP Server ───────────────────────────────────
   const app = createApp();
 
   const server = app.listen(env.PORT, () => {
@@ -33,6 +43,7 @@ async function bootstrap() {
     });
   });
 
+  // ─── Graceful Shutdown ─────────────────────────────
   const shutdown = async (signal: string) => {
     logger.info(`${signal} received — shutting down gracefully`);
 
@@ -54,6 +65,7 @@ async function bootstrap() {
     process.exit(0);
   };
 
+  // Force-kill if graceful shutdown takes longer than 30 seconds
   const forceKillAfterMs = 30_000;
 
   process.on('SIGTERM', async () => {
@@ -69,10 +81,12 @@ async function bootstrap() {
     setTimeout(() => process.exit(1), forceKillAfterMs);
   });
 
+  // Catch unhandled promise rejections (log only, don't crash)
   process.on('unhandledRejection', (reason) => {
     logger.error('Unhandled Promise Rejection', { reason });
   });
 
+  // Uncaught exceptions — crash and let the process manager restart
   process.on('uncaughtException', (error) => {
     logger.error('Uncaught Exception — shutting down', { error });
     process.exit(1);

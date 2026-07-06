@@ -17,6 +17,9 @@ import {
 } from './subscription.schema';
 import { logger } from '../../lib/logger';
 
+// ─── Select Fragments ──────────────────────────────
+
+/** Full detail select including plan, customer, trial dates, billing metadata, and pulse score. */
 const SUBSCRIPTION_DETAIL_SELECT = {
   id: true,
   status: true,
@@ -53,6 +56,7 @@ const SUBSCRIPTION_DETAIL_SELECT = {
   },
 } as const;
 
+/** Lightweight select for list views — no trial/dunning fields. */
 const SUBSCRIPTION_LIST_SELECT = {
   id: true,
   status: true,
@@ -67,6 +71,15 @@ const SUBSCRIPTION_LIST_SELECT = {
   },
 } as const;
 
+// ─── Service Functions ─────────────────────────────
+
+/**
+ * Create a new subscription for a customer on a given plan.
+ *
+ * - Requires a payment method if trialDays === 0.
+ * - Prevents duplicate active subscriptions for the same customer.
+ * - Automatically starts in TRIALING or ACTIVE status depending on trialDays.
+ */
 export async function createSubscription(
   merchantId: string,
   input: CreateSubscriptionInput,
@@ -170,6 +183,7 @@ export async function createSubscription(
   return subscription;
 }
 
+/** List subscriptions for a merchant with pagination and optional filters (status, customerId, planId). */
 export async function listSubscriptions(
   merchantId: string,
   page: number,
@@ -200,6 +214,7 @@ export async function listSubscriptions(
   };
 }
 
+/** Fetch a single subscription by ID including its full detail and recent events (up to 20). */
 export async function getSubscriptionById(merchantId: string, subscriptionId: string) {
   const subscription = await prisma.subscription.findFirst({
     where: { id: subscriptionId, merchantId, isDeleted: false },
@@ -225,6 +240,12 @@ export async function getSubscriptionById(merchantId: string, subscriptionId: st
   return subscription;
 }
 
+/**
+ * Cancel a subscription (soft-termination).
+ *
+ * Sets cancelledAt + reason and transitions the status via the state machine.
+ * Rejects if the subscription is already CANCELLED or EXPIRED.
+ */
 export async function cancelSubscription(
   merchantId: string,
   subscriptionId: string,
@@ -261,6 +282,13 @@ export async function cancelSubscription(
   return { message: 'Subscription cancelled successfully.' };
 }
 
+/**
+ * Change the plan on an active subscription.
+ *
+ * - Only allowed on ACTIVE subscriptions.
+ * - Prorates the price difference and records a credit/charge as needed.
+ * - Enqueues a background job if the customer owes a prorated charge.
+ */
 export async function changePlan(
   merchantId: string,
   subscriptionId: string,

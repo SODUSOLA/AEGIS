@@ -1,11 +1,16 @@
 import { SUBSCRIPTION_STATUS, PLAN_INTERVAL, TRANSACTION_STATUS, MERCHANT_STATUS, CHARGE_TYPE } from '../config/constants';
 
+// ─── Union Types from Constants ──────────────────────
+
 export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUS)[keyof typeof SUBSCRIPTION_STATUS];
 export type PlanInterval = (typeof PLAN_INTERVAL)[keyof typeof PLAN_INTERVAL];
 export type TransactionStatus = (typeof TRANSACTION_STATUS)[keyof typeof TRANSACTION_STATUS];
 export type MerchantStatus = (typeof MERCHANT_STATUS)[keyof typeof MERCHANT_STATUS];
 export type ChargeType = (typeof CHARGE_TYPE)[keyof typeof CHARGE_TYPE];
 
+// ─── Domain Interfaces ───────────────────────────────
+
+/** Lightweight merchant projection used in authenticated requests. */
 export interface AuthenticatedMerchant {
   id: string;
   businessName: string;
@@ -13,6 +18,7 @@ export interface AuthenticatedMerchant {
   status: MerchantStatus;
 }
 
+/** Subscription row with eagerly-loaded plan and customer relations. */
 export interface SubscriptionWithRelations {
   id: string;
   merchantId: string;
@@ -50,12 +56,14 @@ export interface SubscriptionWithRelations {
   };
 }
 
+/** Response shape returned after creating a Nomba checkout session. */
 export interface NombaCheckoutResponse {
   checkoutUrl: string;
   orderId: string;
   reference: string;
 }
 
+/** Response shape returned after charging a customer via Nomba. */
 export interface NombaChargeResponse {
   success: boolean;
   transactionReference: string;

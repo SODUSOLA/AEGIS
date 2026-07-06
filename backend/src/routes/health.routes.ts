@@ -4,6 +4,7 @@ import { successResponse, errorResponse } from '../lib/response';
 
 const router = Router();
 
+/** GET /health — returns 200 with database status, or 503 if the DB is unreachable. */
 router.get('/', async (_req: Request, res: Response) => {
   try {
     await prisma.$queryRaw`SELECT 1`;

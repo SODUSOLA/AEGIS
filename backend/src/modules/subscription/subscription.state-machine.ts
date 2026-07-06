@@ -4,6 +4,12 @@ import { AppError } from '../../lib/errors';
 import { logger } from '../../lib/logger';
 import { emitWebhookEvent } from '../../services/event.emitter';
 
+// ─── State Transitions ─────────────────────────────
+
+/**
+ * Allowed status transitions. Each key maps to the list of statuses it can move to.
+ * Terminal states (CANCELLED, EXPIRED) have no outgoing transitions.
+ */
 const VALID_TRANSITIONS: Record<SubscriptionStatus, SubscriptionStatus[]> = {
   TRIALING:  ['ACTIVE', 'PAST_DUE', 'CANCELLED', 'EXPIRED'],
   ACTIVE:    ['PAST_DUE', 'CANCELLED', 'EXPIRED'],
@@ -13,6 +19,8 @@ const VALID_TRANSITIONS: Record<SubscriptionStatus, SubscriptionStatus[]> = {
   EXPIRED:   [],
 };
 
+// ─── Types ─────────────────────────────────────────
+
 export interface TransitionOptions {
   subscriptionId: string;
   toStatus: SubscriptionStatus;
@@ -20,6 +28,16 @@ export interface TransitionOptions {
   eventType?: string;
 }
 
+// ─── State Machine ─────────────────────────────────
+
+/**
+ * Transition a subscription from its current status to a new status.
+ *
+ * - Validates the transition against VALID_TRANSITIONS.
+ * - Skips if the subscription is already in the target state.
+ * - Persists both the status update and a SubscriptionEvent in a transaction.
+ * - Fires a webhook event asynchronously (errors are logged, never thrown).
+ */
 export async function transitionSubscriptionStatus(options: TransitionOptions) {
   const { subscriptionId, toStatus, metadata, eventType } = options;
 
@@ -92,6 +110,9 @@ export async function transitionSubscriptionStatus(options: TransitionOptions) {
   return updatedSubscription;
 }
 
+// ─── Event Derivation ──────────────────────────────
+
+/** Map a (from → to) status pair to a human-readable event type string. Falls back to a generic pattern. */
 function deriveEventType(from: SubscriptionStatus, to: SubscriptionStatus): string {
   const map: Partial<Record<string, string>> = {
     'TRIALING→ACTIVE':    'TRIAL_ENDED_ACTIVATED',

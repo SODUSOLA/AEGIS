@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { paginationSchema } from '../../lib/pagination';
 
+/** Validates customer creation — email is required; name, phone, nomba token, and metadata are optional. */
 export const createCustomerSchema = z.object({
   body: z.object({
     email: z
@@ -18,6 +19,7 @@ export const createCustomerSchema = z.object({
   }),
 });
 
+/** Validates customer profile updates (name, phone, metadata). */
 export const updateCustomerSchema = z.object({
   params: z.object({
     id: z.string().min(1, 'Customer ID is required'),
@@ -32,6 +34,7 @@ export const updateCustomerSchema = z.object({
   }),
 });
 
+/** Validates attaching/updating a Nomba payment token for a customer. */
 export const updatePaymentMethodSchema = z.object({
   params: z.object({
     id: z.string().min(1, 'Customer ID is required'),
@@ -41,12 +44,14 @@ export const updatePaymentMethodSchema = z.object({
   }),
 });
 
+/** Validates single-customer fetch by ID. */
 export const getCustomerSchema = z.object({
   params: z.object({
     id: z.string().min(1, 'Customer ID is required'),
   }),
 });
 
+/** Validates paginated customer listing with optional hasToken filter. */
 export const listCustomersSchema = z.object({
   query: paginationSchema.extend({
     hasToken: z
@@ -60,6 +65,7 @@ export const listCustomersSchema = z.object({
   }),
 });
 
+/** Validates customer deletion requests. */
 export const deleteCustomerSchema = z.object({
   params: z.object({
     id: z.string().min(1, 'Customer ID is required'),

@@ -18,6 +18,7 @@ import {
 import { successResponse } from '../../../lib/response';
 import { UnauthorizedError } from '../../../lib/errors';
 
+/** POST /webhooks/outbound/endpoints — create a new webhook endpoint. */
 export async function handleCreateEndpoint(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.merchant) throw new UnauthorizedError();
@@ -30,6 +31,7 @@ export async function handleCreateEndpoint(req: Request, res: Response, next: Ne
   } catch (error) { next(error); }
 }
 
+/** GET /webhooks/outbound/endpoints — paginated list of webhook endpoints. */
 export async function handleListEndpoints(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.merchant) throw new UnauthorizedError();
@@ -39,6 +41,7 @@ export async function handleListEndpoints(req: Request, res: Response, next: Nex
   } catch (error) { next(error); }
 }
 
+/** GET /webhooks/outbound/endpoints/:id — get a single endpoint by ID. */
 export async function handleGetEndpoint(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.merchant) throw new UnauthorizedError();
@@ -48,6 +51,7 @@ export async function handleGetEndpoint(req: Request, res: Response, next: NextF
   } catch (error) { next(error); }
 }
 
+/** PATCH /webhooks/outbound/endpoints/:id — update an existing endpoint. */
 export async function handleUpdateEndpoint(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.merchant) throw new UnauthorizedError();
@@ -57,6 +61,7 @@ export async function handleUpdateEndpoint(req: Request, res: Response, next: Ne
   } catch (error) { next(error); }
 }
 
+/** DELETE /webhooks/outbound/endpoints/:id — soft-delete a webhook endpoint. */
 export async function handleDeleteEndpoint(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.merchant) throw new UnauthorizedError();
@@ -66,6 +71,7 @@ export async function handleDeleteEndpoint(req: Request, res: Response, next: Ne
   } catch (error) { next(error); }
 }
 
+/** GET /webhooks/outbound/endpoints/:id/deliveries — paginated delivery logs for an endpoint. */
 export async function handleListDeliveries(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.merchant) throw new UnauthorizedError();

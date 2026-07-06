@@ -11,8 +11,12 @@ import {
   sendUpdateCardEmail,
 } from '../../services/notification.service';
 
+// ─── Dunning Worker ─────────────────────────────────
+
+/** Retry delay schedule in hours between consecutive dunning attempts. */
 const RETRY_DELAYS_HOURS = [1, 24, 72];
 
+/** Start the dunning worker. Attempts to charge a PAST_DUE subscription and sends notifications. */
 export function startDunningWorker(): Worker<DunningJobData> {
   const dunningWorker = new Worker<DunningJobData>(
     QUEUE_NAMES.BILLING_DUNNING,
@@ -59,6 +63,7 @@ export function startDunningWorker(): Worker<DunningJobData> {
         return;
       }
 
+      // No payment method — notify customer and give up
       if (!subscription.customer.nombaTokenKey) {
         logger.warn('Dunning job skipped — no payment method on file', { subscriptionId });
         await sendUpdateCardEmail({
@@ -70,6 +75,7 @@ export function startDunningWorker(): Worker<DunningJobData> {
         return;
       }
 
+      // Send notifications before attempting the charge
       try {
         if (retryAttempt === 1) {
           await sendDunningStartedEmail({

@@ -3,7 +3,10 @@ import { resolveMerchantFromApiKey } from '../modules/merchant/merchant.service'
 import { UnauthorizedError } from '../lib/errors';
 import { logger } from '../lib/logger';
 
-
+/**
+ * Authenticates the request using the `X-API-Key` header.
+ * Validates the key prefix, resolves the merchant, and attaches it to `req.merchant`.
+ */
 export async function authMiddleware(
   req: Request,
   _res: Response,
@@ -23,6 +26,7 @@ export async function authMiddleware(
     const merchant = await resolveMerchantFromApiKey(apiKey);
 
     if (!merchant) {
+      // Log the attempt without exposing the full key
       logger.warn('Invalid API key attempt', {
         ip: req.ip,
         path: req.path,

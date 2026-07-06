@@ -2,6 +2,7 @@ import IORedis from 'ioredis';
 import { env } from '../config/env';
 import { logger } from '../lib/logger';
 
+// BullMQ requires maxRetriesPerRequest: null to use its own retry logic
 const redisConnectionOptions = {
   maxRetriesPerRequest: null as null,
   enableReadyCheck: false,
@@ -11,6 +12,7 @@ const redisConnectionOptions = {
 let _bullMQConnection: IORedis | null = null;
 let _generalConnection: IORedis | null = null;
 
+/** Returns a dedicated Redis connection for BullMQ (no built-in retries). */
 export function getBullMQConnection(): IORedis {
   if (!_bullMQConnection) {
     _bullMQConnection = new IORedis(env.REDIS_URL, redisConnectionOptions);
@@ -21,6 +23,7 @@ export function getBullMQConnection(): IORedis {
   return _bullMQConnection;
 }
 
+/** Returns the general-purpose Redis client (allows up to 3 automatic retries). */
 export function getRedisClient(): IORedis {
   if (!_generalConnection) {
     _generalConnection = new IORedis(env.REDIS_URL, {
@@ -36,6 +39,7 @@ export function getRedisClient(): IORedis {
   return _generalConnection;
 }
 
+/** Gracefully quits both Redis connections (settles regardless of errors). */
 export async function disconnectRedis(): Promise<void> {
   await Promise.allSettled([
     _bullMQConnection?.quit(),

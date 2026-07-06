@@ -8,8 +8,11 @@ import { NombaWebhookPayload } from '../../../integrations/nomba/nomba.types';
 import { prisma } from '../../../db/prisma';
 import { processNombaWebhook } from './inbound.processor';
 
+// ─── Inbound Webhook Routes ──────────────────────────
+
 const router = Router();
 
+/** POST /webhook/inbound/nomba — receive, verify, deduplicate, and process Nomba webhooks asynchronously. */
 router.post('/nomba', async (req: Request, res: Response) => {
   const nombaSignature = req.headers['nomba-signature'] as string;
   const nombaTimestamp = req.headers['nomba-timestamp'] as string;
@@ -42,6 +45,7 @@ router.post('/nomba', async (req: Request, res: Response) => {
     return;
   }
 
+  // Deduplication: skip if this requestId has already been processed
   if (requestId) {
     try {
       const existing = await prisma.inboundWebhookLog.findUnique({
@@ -74,6 +78,7 @@ router.post('/nomba', async (req: Request, res: Response) => {
     }
   }
 
+  // Acknowledge immediately, then process asynchronously
   res.status(200).json({ received: true });
 
   setImmediate(async () => {
@@ -95,6 +100,7 @@ router.post('/nomba', async (req: Request, res: Response) => {
           : 'Unknown error',
       });
 
+      // Mark the log entry with the error for debugging
       if (requestId) {
         try {
           await prisma.inboundWebhookLog.update({

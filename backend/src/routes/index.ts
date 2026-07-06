@@ -10,6 +10,7 @@ import dunningRouter from '../modules/dunning/dunning.routes';
 
 const API_PREFIX = '/api/v1';
 
+/** Mounts all route modules onto the Express application. */
 export function registerRoutes(app: Application): void {
   app.use('/health', healthRouter);
 
@@ -21,6 +22,7 @@ export function registerRoutes(app: Application): void {
   app.use(`${API_PREFIX}/webhooks`, inboundWebhookRouter);
   app.use(`${API_PREFIX}/webhooks`, outboundWebhookRouter);
 
+  // Catch-all 404 for undefined routes
   app.use((_req, res) => {
     res.status(404).json({
       success: false,

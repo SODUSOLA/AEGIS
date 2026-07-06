@@ -7,6 +7,9 @@ import {
   SubscriptionSuspendedEmailPayload,
 } from '../integrations/email/email.types';
 
+// ─── Helpers ──────────────────────────────────────────
+
+/** Formats a kobo amount as human-readable Nigerian Naira (e.g. "₦1,500.00"). */
 function formatNaira(amountKobo: number): string {
   return new Intl.NumberFormat('en-NG', {
     style: 'currency',
@@ -14,6 +17,7 @@ function formatNaira(amountKobo: number): string {
   }).format(amountKobo / 100);
 }
 
+/** Wraps body HTML inside the shared AEGIS billing email template. */
 function wrapHtml(body: string): string {
   return `
 <!DOCTYPE html>
@@ -39,7 +43,7 @@ function wrapHtml(body: string): string {
               <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;" />
               <p style="font-size:12px;color:#9ca3af;margin:0;">
                 This is an automated billing notification from AEGIS.<br />
-                If you have questions, contact the merchant who manages your subscription.
+                If you have questions, please contact the merchant who manages your subscription.
               </p>
             </td>
           </tr>
@@ -51,6 +55,9 @@ function wrapHtml(body: string): string {
 </html>`.trim();
 }
 
+// ─── Email Senders ────────────────────────────────────
+
+/** Notifies the customer when the first payment attempt fails and dunning begins. */
 export async function sendDunningStartedEmail(
   payload: DunningStartedEmailPayload,
 ): Promise<void> {
@@ -85,6 +92,7 @@ export async function sendDunningStartedEmail(
   });
 }
 
+/** Notifies the customer when a dunning retry attempt also fails. */
 export async function sendRetryScheduledEmail(
   payload: RetryScheduledEmailPayload,
 ): Promise<void> {
@@ -119,6 +127,7 @@ export async function sendRetryScheduledEmail(
   });
 }
 
+/** Notifies the customer that a previously failed payment has now succeeded. */
 export async function sendPaymentRecoveredEmail(
   payload: PaymentRecoveredEmailPayload,
 ): Promise<void> {
@@ -154,6 +163,7 @@ export async function sendPaymentRecoveredEmail(
   });
 }
 
+/** Asks the customer to update their card after a permanent card failure. */
 export async function sendUpdateCardEmail(
   payload: UpdateCardEmailPayload,
 ): Promise<void> {
@@ -191,6 +201,7 @@ export async function sendUpdateCardEmail(
   });
 }
 
+/** Notifies the customer that all retries were exhausted and the subscription is suspended. */
 export async function sendSubscriptionSuspendedEmail(
   payload: SubscriptionSuspendedEmailPayload,
 ): Promise<void> {

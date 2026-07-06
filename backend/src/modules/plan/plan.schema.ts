@@ -3,6 +3,7 @@ import { paginationSchema } from '../../lib/pagination';
 
 const PLAN_INTERVALS = ['WEEKLY', 'MONTHLY', 'YEARLY', 'CUSTOM'] as const;
 
+/** Validates plan creation — name, amount in kobo, interval, optional trial. CUSTOM interval requires intervalDays. */
 export const createPlanSchema = z.object({
   body: z
     .object({
@@ -46,6 +47,7 @@ export const createPlanSchema = z.object({
     ),
 });
 
+/** Validates plan updates — name, description, and isActive are optional partial updates. */
 export const updatePlanSchema = z.object({
   params: z.object({
     id: z.string().min(1, 'Plan ID is required'),
@@ -57,12 +59,14 @@ export const updatePlanSchema = z.object({
   }),
 });
 
+/** Validates requests that target a single plan by ID. */
 export const getPlanSchema = z.object({
   params: z.object({
     id: z.string().min(1, 'Plan ID is required'),
   }),
 });
 
+/** Validates paginated plan listing with optional isActive filter. */
 export const listPlansSchema = z.object({
   query: paginationSchema.extend({
     isActive: z
@@ -76,6 +80,7 @@ export const listPlansSchema = z.object({
   }),
 });
 
+/** Validates plan deletion (archival) requests. */
 export const deletePlanSchema = z.object({
   params: z.object({
     id: z.string().min(1, 'Plan ID is required'),

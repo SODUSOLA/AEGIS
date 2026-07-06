@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+/** Validates merchant registration request body — businessName (2-100 chars) and email. */
 export const registerMerchantSchema = z.object({
   body: z.object({
     businessName: z

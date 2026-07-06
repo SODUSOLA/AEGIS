@@ -7,6 +7,8 @@ import {
   handleManualReactivate,
 } from './dunning.controller';
 
+// ─── Dunning Routes ──────────────────────────────────
+
 const router = Router();
 router.use(authMiddleware);
 

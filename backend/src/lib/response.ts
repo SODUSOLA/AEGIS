@@ -1,3 +1,4 @@
+/** Standard envelope for every API response. */
 export interface ApiResponse<T = undefined> {
   success: boolean;
   message: string;
@@ -6,6 +7,7 @@ export interface ApiResponse<T = undefined> {
   meta?: Record<string, unknown>;
 }
 
+/** Builds a success envelope. Omits `data` when undefined to keep the payload clean. */
 export function successResponse<T>(
   message: string,
   data?: T,
@@ -19,6 +21,7 @@ export function successResponse<T>(
   };
 }
 
+/** Builds an error envelope with optional structured error details. */
 export function errorResponse(message: string, errors?: unknown): ApiResponse {
   return {
     success: false,

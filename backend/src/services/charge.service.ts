@@ -10,7 +10,12 @@ import { JOB_NAMES } from '../queues/queue.definitions';
 import { env } from '../config/env';
 import { logger } from '../lib/logger';
 
+// ─── Constants ────────────────────────────────────────
+
+/** Delay windows (in hours) between successive dunning retries. */
 const DUNNING_RETRY_DELAYS_HOURS = [1, 24, 72];
+
+// ─── Public Types ─────────────────────────────────────
 
 export type ChargeType = 'RENEWAL' | 'PRORATION' | 'RETRY';
 
@@ -29,6 +34,12 @@ export interface ChargeOutcome {
   failureReason?: string;
 }
 
+// ─── Charge Execution ─────────────────────────────────
+
+/**
+ * Orchestrates the full charge lifecycle: validates subscription state, enforces
+ * idempotency, calls the Nomba gateway, then routes to success or failure handling.
+ */
 export async function executeCharge(options: ExecuteChargeOptions): Promise<ChargeOutcome> {
   const {
     subscriptionId,
@@ -39,6 +50,7 @@ export async function executeCharge(options: ExecuteChargeOptions): Promise<Char
     description,
   } = options;
 
+  // ── Load subscription with related plan + customer ──
   const subscription = await prisma.subscription.findFirst({
     where: { id: subscriptionId, merchantId, isDeleted: false },
     select: {
@@ -64,6 +76,7 @@ export async function executeCharge(options: ExecuteChargeOptions): Promise<Char
     throw new Error(`Subscription ${subscriptionId} not found — skipping charge`);
   }
 
+  // ── Guard: only chargeable statuses ──
   const chargeableStatuses = ['ACTIVE', 'TRIALING', 'PAST_DUE'];
   if (!chargeableStatuses.includes(subscription.status)) {
     logger.warn('Charge skipped — subscription not in chargeable state', {
@@ -76,6 +89,7 @@ export async function executeCharge(options: ExecuteChargeOptions): Promise<Char
     );
   }
 
+  // ── Guard: payment method must exist ──
   if (!subscription.customer.nombaTokenKey) {
     logger.error('Charge skipped — no payment method on file', { subscriptionId });
     await transitionSubscriptionStatus({
@@ -87,6 +101,7 @@ export async function executeCharge(options: ExecuteChargeOptions): Promise<Char
     throw new Error('No nombaTokenKey on customer — cannot charge');
   }
 
+  // ── Idempotency: derive a deterministic key per (sub, period, type, attempt) ──
   const idempotencyKey = generateIdempotencyKey(
     subscriptionId,
     subscription.currentPeriodStart,
@@ -117,6 +132,7 @@ export async function executeCharge(options: ExecuteChargeOptions): Promise<Char
     return { success: false, transactionId: existingTransaction.id };
   }
 
+  // ── Create PENDING transaction record ──
   const transaction = await prisma.transaction.create({
     data: {
       merchantId,
@@ -140,12 +156,14 @@ export async function executeCharge(options: ExecuteChargeOptions): Promise<Char
     idempotencyKey,
   });
 
+  // ── Build a human-readable description (internal use only) ──
   const chargeDescription =
     description ??
     `${chargeType === 'RENEWAL' ? 'Renewal' : chargeType === 'PRORATION' ? 'Plan upgrade adjustment' : 'Retry charge'} — ${subscription.plan.name}`;
 
   const callbackUrl = `${env.APP_BASE_URL}/api/v1/webhooks/nomba/callback`;
 
+  // ── Execute the charge via Nomba ──
   const chargeResult = await chargeTokenizedCard(
     amountKobo,
     subscription.customer.nombaTokenKey,
@@ -160,6 +178,7 @@ export async function executeCharge(options: ExecuteChargeOptions): Promise<Char
     chargeDescription,
   });
 
+  // ── Route to success or failure handler ──
   if (chargeResult.success) {
     await handleSuccessfulCharge({
       transactionId: transaction.id,
@@ -193,6 +212,8 @@ export async function executeCharge(options: ExecuteChargeOptions): Promise<Char
   }
 }
 
+// ─── Success Handler ──────────────────────────────────
+
 interface SuccessHandlerOptions {
   transactionId: string;
   subscriptionId: string;
@@ -205,6 +226,11 @@ interface SuccessHandlerOptions {
   chargeAmountKobo?: number;
 }
 
+/**
+ * On successful charge: marks the transaction SUCCESS, advances the billing
+ * period for renewals/retries, resets the retry counter, and triggers status
+ * transitions (e.g. TRIALING → ACTIVE, PAST_DUE → ACTIVE).
+ */
 async function handleSuccessfulCharge(opts: SuccessHandlerOptions): Promise<void> {
   const {
     transactionId,
@@ -216,6 +242,7 @@ async function handleSuccessfulCharge(opts: SuccessHandlerOptions): Promise<void
     previousStatus,
   } = opts;
 
+  // Only advance the billing period for renewals and retries (not prorations)
   const shouldAdvancePeriod = chargeType === 'RENEWAL' || chargeType === 'RETRY';
 
   const nextPeriodStart = shouldAdvancePeriod ? new Date() : undefined;
@@ -247,6 +274,7 @@ async function handleSuccessfulCharge(opts: SuccessHandlerOptions): Promise<void
     }),
   ]);
 
+  // ── State machine transitions based on previous status ──
   if (previousStatus === 'TRIALING') {
     await transitionSubscriptionStatus({
       subscriptionId,
@@ -262,6 +290,7 @@ async function handleSuccessfulCharge(opts: SuccessHandlerOptions): Promise<void
       metadata: { transactionId, chargeType },
     });
 
+    // Fire-and-forget the payment-recovered notification email
     try {
       const sub = await prisma.subscription.findUnique({
         where: { id: subscriptionId },
@@ -288,6 +317,7 @@ async function handleSuccessfulCharge(opts: SuccessHandlerOptions): Promise<void
       });
     }
   } else {
+    // Normal renewal — just log the event
     await prisma.subscriptionEvent.create({
       data: {
         subscriptionId,
@@ -310,6 +340,8 @@ async function handleSuccessfulCharge(opts: SuccessHandlerOptions): Promise<void
   });
 }
 
+// ─── Failure Handler ──────────────────────────────────
+
 interface FailureHandlerOptions {
   transactionId: string;
   subscriptionId: string;
@@ -320,6 +352,11 @@ interface FailureHandlerOptions {
   previousStatus: string;
 }
 
+/**
+ * On failed charge: classifies the failure, updates the transaction, transitions
+ * to PAST_DUE, and either escalates immediately (permanent failure) or schedules
+ * the next dunning retry.
+ */
 async function handleFailedCharge(opts: FailureHandlerOptions): Promise<void> {
   const {
     transactionId,
@@ -337,6 +374,7 @@ async function handleFailedCharge(opts: FailureHandlerOptions): Promise<void> {
 
   const permanent = isPermanentFailure(failureReason);
 
+  // ── Record the failure on the transaction ──
   await prisma.transaction.update({
     where: { id: transactionId },
     data: {
@@ -347,6 +385,7 @@ async function handleFailedCharge(opts: FailureHandlerOptions): Promise<void> {
     },
   });
 
+  // ── Move subscription to PAST_DUE ──
   await transitionSubscriptionStatus({
     subscriptionId,
     toStatus: 'PAST_DUE',
@@ -361,6 +400,7 @@ async function handleFailedCharge(opts: FailureHandlerOptions): Promise<void> {
     },
   });
 
+  // ── Permanent failure (expired/invalid card) → suspend immediately ──
   if (permanent) {
     logger.warn('Permanent card failure — escalating directly to SUSPENDED', {
       subscriptionId,
@@ -387,6 +427,7 @@ async function handleFailedCharge(opts: FailureHandlerOptions): Promise<void> {
       },
     });
 
+    // Notify the customer to update their card
     try {
       const sub = await prisma.subscription.findUnique({
         where: { id: subscriptionId },
@@ -414,6 +455,7 @@ async function handleFailedCharge(opts: FailureHandlerOptions): Promise<void> {
     return;
   }
 
+  // ── Transient failure — schedule the next retry if attempts remain ──
   const nextRetryAttempt = retryAttempt + 1;
   const maxRetries = DUNNING_RETRY_DELAYS_HOURS.length;
 
@@ -450,6 +492,7 @@ async function handleFailedCharge(opts: FailureHandlerOptions): Promise<void> {
       nextRetryAt: nextRetryAt.toISOString(),
     });
   } else {
+    // ── No retries left — suspend ──
     logger.warn('Max dunning retries exhausted — transitioning to SUSPENDED', {
       subscriptionId,
       retryAttempt,
@@ -475,6 +518,7 @@ async function handleFailedCharge(opts: FailureHandlerOptions): Promise<void> {
       },
     });
 
+    // Notify the customer that their subscription is suspended
     try {
       const sub = await prisma.subscription.findUnique({
         where: { id: subscriptionId },
@@ -501,6 +545,13 @@ async function handleFailedCharge(opts: FailureHandlerOptions): Promise<void> {
   }
 }
 
+// ─── Helpers ──────────────────────────────────────────
+
+/**
+ * Generates a deterministic idempotency key from the subscription, billing
+ * period, charge type, and retry attempt. Uses HMAC-SHA256 with the app's
+ * API_KEY_SALT so the key cannot be forged.
+ */
 function generateIdempotencyKey(
   subscriptionId: string,
   periodStart: Date,

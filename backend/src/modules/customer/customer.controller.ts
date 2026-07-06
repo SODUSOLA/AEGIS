@@ -1,10 +1,26 @@
 import { Request, Response, NextFunction } from 'express';
-import {createCustomerSchema, updateCustomerSchema, getCustomerSchema, listCustomersSchema, deleteCustomerSchema, updatePaymentMethodSchema} from './customer.schema';
-import { createCustomer, listCustomers, getCustomerById, updateCustomer, updatePaymentMethod,  deleteCustomer} from './customer.service';
+import {
+  createCustomerSchema,
+  updateCustomerSchema,
+  getCustomerSchema,
+  listCustomersSchema,
+  deleteCustomerSchema,
+  updatePaymentMethodSchema,
+} from './customer.schema';
+import {
+  createCustomer,
+  listCustomers,
+  getCustomerById,
+  updateCustomer,
+  updatePaymentMethod,
+  deleteCustomer,
+} from './customer.service';
 import { successResponse } from '../../lib/response';
 import { UnauthorizedError } from '../../lib/errors';
 
-// Customer creation logic
+// ─── Controller Functions ──────────────────────────
+
+/** Create a new customer (or restore a soft-deleted one). */
 export async function handleCreateCustomer(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.merchant) throw new UnauthorizedError();
@@ -16,7 +32,7 @@ export async function handleCreateCustomer(req: Request, res: Response, next: Ne
   }
 }
 
-
+/** List customers with pagination and optional hasToken filter. */
 export async function handleListCustomers(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.merchant) throw new UnauthorizedError();
@@ -28,6 +44,7 @@ export async function handleListCustomers(req: Request, res: Response, next: Nex
   }
 }
 
+/** Fetch a single customer by ID with recent subscriptions. */
 export async function handleGetCustomer(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.merchant) throw new UnauthorizedError();
@@ -39,6 +56,7 @@ export async function handleGetCustomer(req: Request, res: Response, next: NextF
   }
 }
 
+/** Update a customer's name, phone, or metadata. */
 export async function handleUpdateCustomer(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.merchant) throw new UnauthorizedError();
@@ -50,6 +68,7 @@ export async function handleUpdateCustomer(req: Request, res: Response, next: Ne
   }
 }
 
+/** Attach or update a Nomba payment token for a customer. */
 export async function handleUpdatePaymentMethod(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.merchant) throw new UnauthorizedError();
@@ -61,6 +80,7 @@ export async function handleUpdatePaymentMethod(req: Request, res: Response, nex
   }
 }
 
+/** Soft-delete a customer. Blocked if they have active subscriptions. */
 export async function handleDeleteCustomer(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.merchant) throw new UnauthorizedError();

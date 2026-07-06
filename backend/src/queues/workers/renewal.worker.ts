@@ -7,6 +7,9 @@ import { env } from '../../config/env';
 import { logger } from '../../lib/logger';
 import { calculatePeriodEnd } from '../../lib/billing.utils';
 
+// ─── Renewal Worker ─────────────────────────────────
+
+/** Start the renewal worker. Processes each due subscription: applies credit balance, charges or skips. */
 export function startRenewalWorker(): Worker<RenewalJobData> {
   const renewalWorker = new Worker<RenewalJobData>(
     QUEUE_NAMES.BILLING_RENEWAL,
@@ -49,10 +52,12 @@ export function startRenewalWorker(): Worker<RenewalJobData> {
         return;
       }
 
+      // Apply any existing credit balance to reduce the charge amount
       const rawAmountKobo = subscription.plan.amountKobo;
       const creditKobo = subscription.balanceCreditKobo ?? 0;
       const chargeAmountKobo = Math.max(0, rawAmountKobo - creditKobo);
 
+      // Full credit coverage — no external charge needed, just advance the period
       if (chargeAmountKobo === 0 && creditKobo > 0) {
         logger.info('Renewal covered by existing credit balance — skipping Nomba charge', {
           subscriptionId,
@@ -79,6 +84,7 @@ export function startRenewalWorker(): Worker<RenewalJobData> {
         return;
       }
 
+      // Charge the net amount after credit
       await executeCharge({
         subscriptionId,
         merchantId,

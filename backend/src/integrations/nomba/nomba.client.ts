@@ -8,8 +8,16 @@ import {
   ChargeResult,
 } from './nomba.types';
 
+// ─── Constants ────────────────────────────────────────
+
 const REQUEST_TIMEOUT_MS = 30_000;
 
+// ─── Internal HTTP Helpers ────────────────────────────
+
+/**
+ * Wraps a Nomba API call with auth-header injection and automatic 401 retry.
+ * On a 401 response the cached token is invalidated and a single retry is made.
+ */
 async function nombaRequest<T>(
   path: string,
   options: RequestInit,
@@ -34,6 +42,7 @@ async function nombaRequest<T>(
 
     clearTimeout(timeoutId);
 
+    // Stale / revoked token — clear cache and retry once
     if (response.status === 401 && retryOnAuth) {
       await invalidateNombaTokens();
       return nombaRequest<T>(path, options, false);
@@ -49,6 +58,12 @@ async function nombaRequest<T>(
   }
 }
 
+// ─── Public API ───────────────────────────────────────
+
+/**
+ * Charges a tokenized card via Nomba's tokenized-card-payment endpoint.
+ * Converts kobo to naira (Nomba expects naira) and returns a normalised ChargeResult.
+ */
 export async function chargeTokenizedCard(
   amountKobo: number,
   tokenKey: string,
@@ -57,6 +72,7 @@ export async function chargeTokenizedCard(
   orderReference: string,
   callbackUrl: string,
 ): Promise<ChargeResult> {
+  // Nomba API expects amounts in naira (whole currency units)
   const amountNaira = Number((amountKobo / 100).toFixed(2));
 
   const requestBody: NombaTokenizedChargeRequest = {
@@ -67,7 +83,7 @@ export async function chargeTokenizedCard(
       callbackUrl,
       amount: amountNaira,
       currency: 'NGN',
-      accountId: env.NOMBA_SUB_ACCOUNT_ID,  // sub-account
+      accountId: env.NOMBA_SUB_ACCOUNT_ID, // sub-account routing
     },
     tokenKey,
   };
@@ -123,6 +139,7 @@ export async function chargeTokenizedCard(
   };
 }
 
+/** Looks up a transaction by its order reference (used for reconciliation). */
 export async function verifyTransactionByReference(
   orderReference: string,
 ): Promise<NombaTransactionVerifyResponse> {

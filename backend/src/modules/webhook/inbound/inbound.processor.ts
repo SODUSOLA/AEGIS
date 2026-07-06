@@ -7,6 +7,9 @@ import {
 import { transitionSubscriptionStatus } from '../../subscription/subscription.state-machine';
 import { calculatePeriodEnd } from '../../../lib/billing.utils';
 
+// ─── Event Router ────────────────────────────────────
+
+/** Route an inbound Nomba webhook payload to the appropriate handler based on event_type. */
 export async function processNombaWebhook(
   payload: NombaWebhookPayload,
 ): Promise<void> {
@@ -35,6 +38,9 @@ export async function processNombaWebhook(
   }
 }
 
+// ─── Payment Success Handler ─────────────────────────
+
+/** Handle a payment_success event: reconcile with transaction, store tokenKey, activate subscription. */
 async function handlePaymentSuccess(payload: NombaWebhookPayload): Promise<void> {
   const orderReference = payload.data.order?.orderReference;
   const requestId = payload.requestId;
@@ -75,6 +81,7 @@ async function handlePaymentSuccess(payload: NombaWebhookPayload): Promise<void>
     return;
   }
 
+  // Capture tokenized card data and persist the tokenKey for future recurring charges
   const isTokenized =
     payload.data.order?.isTokenizedCardPayment === 'true';
 
@@ -95,6 +102,7 @@ async function handlePaymentSuccess(payload: NombaWebhookPayload): Promise<void>
     }
   }
 
+  // Mark the local transaction as SUCCESS if it was still pending
   if (transaction.status === 'PENDING') {
     const nombaTransactionId = payload.data.transaction.transactionId;
 
@@ -110,6 +118,7 @@ async function handlePaymentSuccess(payload: NombaWebhookPayload): Promise<void>
 
   const sub = transaction.subscription;
 
+  // TRIALING → ACTIVE: first successful charge moves subscription out of trial
   if (sub.status === 'TRIALING') {
     const now = new Date();
     const newPeriodEnd = calculatePeriodEnd(
@@ -144,6 +153,7 @@ async function handlePaymentSuccess(payload: NombaWebhookPayload): Promise<void>
       newPeriodEnd: newPeriodEnd.toISOString(),
     });
   } else if (sub.status === 'PAST_DUE') {
+    // PAST_DUE → ACTIVE: dunning retry succeeded, reset billing period
     const now = new Date();
     const newPeriodEnd = calculatePeriodEnd(
       now,
@@ -182,6 +192,9 @@ async function handlePaymentSuccess(payload: NombaWebhookPayload): Promise<void>
   });
 }
 
+// ─── Payment Failed Handler ──────────────────────────
+
+/** Handle a payment_failed event: mark the matching transaction as FAILED. */
 async function handlePaymentFailed(payload: NombaWebhookPayload): Promise<void> {
   const orderReference = payload.data.order?.orderReference;
 

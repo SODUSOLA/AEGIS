@@ -1,16 +1,24 @@
 import { Router } from 'express';
 import { authMiddleware } from '../../middleware/auth.middleware';
-import {handleCreateCustomer, handleListCustomers, handleGetCustomer, handleUpdateCustomer, handleUpdatePaymentMethod, handleDeleteCustomer} from './customer.controller';
+import {
+  handleCreateCustomer,
+  handleListCustomers,
+  handleGetCustomer,
+  handleUpdateCustomer,
+  handleUpdatePaymentMethod,
+  handleDeleteCustomer,
+} from './customer.controller';
 
 const router = Router();
 
+// All customer routes require API key authentication.
 router.use(authMiddleware);
 
-router.post('/', handleCreateCustomer); // route to create customers
-router.get('/', handleListCustomers); // route to list all cutomers
-router.get('/:id', handleGetCustomer); // route to gwt single custo,er by id
-router.patch('/:id', handleUpdateCustomer); // route to update customer profile
-router.patch('/:id/payment-method', handleUpdatePaymentMethod); // route to update cutomer payment method
-router.delete('/:id', handleDeleteCustomer); // route to delete customer account (soft-delete)
+router.post('/', handleCreateCustomer);
+router.get('/', handleListCustomers);
+router.get('/:id', handleGetCustomer);
+router.patch('/:id', handleUpdateCustomer);
+router.patch('/:id/payment-method', handleUpdatePaymentMethod);
+router.delete('/:id', handleDeleteCustomer);
 
 export default router;

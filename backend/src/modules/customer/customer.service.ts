@@ -5,6 +5,14 @@ import { getPrismaSkipTake, buildPaginationMeta } from '../../lib/pagination';
 import { CreateCustomerInput, UpdateCustomerInput, UpdatePaymentMethodInput } from './customer.schema';
 import { logger } from '../../lib/logger';
 
+// ─── Service Functions ─────────────────────────────
+
+/**
+ * Create a new customer under a merchant.
+ *
+ * If a soft-deleted customer with the same email exists, restores it
+ * with the new data instead of creating a duplicate.
+ */
 export async function createCustomer(merchantId: string, input: CreateCustomerInput) {
   const existing = await prisma.customer.findUnique({
     where: { merchantId_email: { merchantId, email: input.email } },
@@ -69,6 +77,7 @@ export async function createCustomer(merchantId: string, input: CreateCustomerIn
   return transformCustomer(customer);
 }
 
+/** List customers for a merchant with pagination and optional hasToken filter. */
 export async function listCustomers(
   merchantId: string,
   page: number,
@@ -107,6 +116,7 @@ export async function listCustomers(
   };
 }
 
+/** Fetch a single customer by ID with their recent subscription history (up to 5). */
 export async function getCustomerById(merchantId: string, customerId: string) {
   const customer = await prisma.customer.findFirst({
     where: { id: customerId, merchantId, isDeleted: false },
@@ -145,6 +155,7 @@ export async function getCustomerById(merchantId: string, customerId: string) {
   };
 }
 
+/** Update a customer's mutable profile fields (name, phone, metadata). */
 export async function updateCustomer(
   merchantId: string,
   customerId: string,
@@ -180,6 +191,7 @@ export async function updateCustomer(
   return transformCustomer(updated);
 }
 
+/** Attach or update a Nomba payment token for a customer. */
 export async function updatePaymentMethod(
   merchantId: string,
   customerId: string,
@@ -202,6 +214,10 @@ export async function updatePaymentMethod(
   return { message: 'Payment method updated successfully.' };
 }
 
+/**
+ * Soft-delete a customer. Blocked if the customer has active subscriptions
+ * (TRIALING, ACTIVE, or PAST_DUE).
+ */
 export async function deleteCustomer(merchantId: string, customerId: string) {
   const customer = await prisma.customer.findFirst({
     where: { id: customerId, merchantId, isDeleted: false },
@@ -234,6 +250,9 @@ export async function deleteCustomer(merchantId: string, customerId: string) {
   logger.info('Customer soft-deleted', { merchantId, customerId });
 }
 
+// ─── Helpers ───────────────────────────────────────
+
+/** Strip the raw nombaTokenKey from the response and expose a boolean hasPaymentMethod instead. */
 function transformCustomer(customer: {
   id: string;
   email: string;

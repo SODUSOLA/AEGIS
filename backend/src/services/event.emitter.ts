@@ -4,6 +4,9 @@ import { JOB_NAMES } from '../queues/queue.definitions';
 import { logger } from '../lib/logger';
 import crypto from 'crypto';
 
+// ─── Event Definitions ────────────────────────────────
+
+/** All AEGIS webhook event types that merchant endpoints can subscribe to. */
 export const AEGIS_EVENT_TYPES = [
   'subscription.activated',
   'subscription.past_due',
@@ -19,6 +22,12 @@ export const AEGIS_EVENT_TYPES = [
 
 export type AegisEventType = (typeof AEGIS_EVENT_TYPES)[number];
 
+// ─── Event Mapping ────────────────────────────────────
+
+/**
+ * Maps internal subscription state-machine events to public AEGIS event types.
+ * Events mapped to `null` are internal-only and do not trigger webhooks.
+ */
 const STATE_EVENT_TO_AEGIS_EVENT: Record<string, AegisEventType | null> = {
   SUBSCRIPTION_ACTIVATED:            'subscription.activated',
   TRIAL_ENDED_ACTIVATED:             'subscription.activated',
@@ -37,6 +46,8 @@ const STATE_EVENT_TO_AEGIS_EVENT: Record<string, AegisEventType | null> = {
   SUBSCRIPTION_TRIALING_STARTED:     null,
 };
 
+// ─── Emit Options ─────────────────────────────────────
+
 export interface EmitEventOptions {
   merchantId: string;
   subscriptionId: string;
@@ -44,9 +55,18 @@ export interface EmitEventOptions {
   metadata?: Record<string, unknown>;
 }
 
+// ─── Public API ───────────────────────────────────────
+
+/**
+ * Dispatches a webhook event to all active merchant endpoints subscribed to the
+ * mapped AEGIS event type. Creates a delivery record and enqueues each delivery
+ * to the outbound webhook queue. Failures are logged but never thrown — the
+ * state transition that triggered the event is already committed.
+ */
 export async function emitWebhookEvent(options: EmitEventOptions): Promise<void> {
   const { merchantId, subscriptionId, stateEventType, metadata } = options;
 
+  // Resolve internal state event → public AEGIS event; skip if null (internal-only)
   const aegisEventType = STATE_EVENT_TO_AEGIS_EVENT[stateEventType];
 
   if (!aegisEventType) {
@@ -76,6 +96,7 @@ export async function emitWebhookEvent(options: EmitEventOptions): Promise<void>
       return;
     }
 
+    // Fetch all active endpoints that subscribe to this event type
     const endpoints = await prisma.webhookEndpoint.findMany({
       where: {
         merchantId,
@@ -94,6 +115,7 @@ export async function emitWebhookEvent(options: EmitEventOptions): Promise<void>
       return;
     }
 
+    // Build the shared event payload
     const eventId = `evt_${crypto.randomUUID()}`;
     const eventPayload = {
       id: eventId,
@@ -115,6 +137,7 @@ export async function emitWebhookEvent(options: EmitEventOptions): Promise<void>
 
     const queue = getOutboundWebhookQueue();
 
+    // Fan out: one delivery per subscribed endpoint
     for (const endpoint of endpoints) {
       const deliveryId = `del_${crypto.randomUUID()}`;
 

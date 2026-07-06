@@ -9,6 +9,9 @@ import {
   getApiKeyPreview,
 } from './apiKey.service';
 
+// ─── Types ─────────────────────────────────────────
+
+/** Return shape for merchant registration — includes the raw API key (shown once). */
 export interface MerchantRegistrationResult {
   merchant: {
     id: string;
@@ -22,6 +25,9 @@ export interface MerchantRegistrationResult {
   apiKey: string;
 }
 
+// ─── Service Functions ─────────────────────────────
+
+/** Register a new merchant account: validates uniqueness, generates API key + webhook secret. */
 export async function registerMerchant(
   input: RegisterMerchantInput,
 ): Promise<MerchantRegistrationResult> {
@@ -71,6 +77,7 @@ export async function registerMerchant(
   };
 }
 
+/** Look up a merchant by its UUID. Returns null if not found. */
 export async function getMerchantById(merchantId: string) {
   return prisma.merchant.findUnique({
     where: { id: merchantId },
@@ -86,6 +93,7 @@ export async function getMerchantById(merchantId: string) {
   });
 }
 
+/** Resolve a merchant from a raw API key. Returns null if key is invalid or merchant is not ACTIVE. */
 export async function resolveMerchantFromApiKey(apiKey: string) {
   const apiKeyHash = hashApiKey(apiKey);
 

@@ -3,6 +3,7 @@ import { paginationSchema } from '../../lib/pagination';
 
 const SUBSCRIPTION_STATUSES = ['TRIALING', 'ACTIVE', 'PAST_DUE', 'SUSPENDED', 'CANCELLED', 'EXPIRED'] as const;
 
+/** Validates subscription creation — ties a customer to a plan with optional trial days and metadata. */
 export const createSubscriptionSchema = z.object({
   body: z
     .object({
@@ -18,6 +19,7 @@ export const createSubscriptionSchema = z.object({
     }),
 });
 
+/** Validates subscription cancellation with an optional reason. */
 export const cancelSubscriptionSchema = z.object({
   params: z.object({
     id: z.string().min(1, 'Subscription ID is required'),
@@ -27,6 +29,7 @@ export const cancelSubscriptionSchema = z.object({
   }),
 });
 
+/** Validates plan-change requests on an existing subscription. */
 export const changePlanSchema = z.object({
   params: z.object({
     id: z.string().min(1, 'Subscription ID is required'),
@@ -36,12 +39,14 @@ export const changePlanSchema = z.object({
   }),
 });
 
+/** Validates single-subscription fetch by ID. */
 export const getSubscriptionSchema = z.object({
   params: z.object({
     id: z.string().min(1, 'Subscription ID is required'),
   }),
 });
 
+/** Validates paginated subscription listing with optional status, customerId, and planId filters. */
 export const listSubscriptionsSchema = z.object({
   query: paginationSchema.extend({
     status: z.enum(SUBSCRIPTION_STATUSES).optional(),

@@ -16,6 +16,7 @@ import {
 import { successResponse } from '../../lib/response';
 import { UnauthorizedError } from '../../lib/errors';
 
+/** Create a new pricing plan for the authenticated merchant. */
 export async function handleCreatePlan(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.merchant) throw new UnauthorizedError();
@@ -27,6 +28,7 @@ export async function handleCreatePlan(req: Request, res: Response, next: NextFu
   }
 }
 
+/** List plans with pagination and optional isActive query filter. */
 export async function handleListPlans(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.merchant) throw new UnauthorizedError();
@@ -38,6 +40,7 @@ export async function handleListPlans(req: Request, res: Response, next: NextFun
   }
 }
 
+/** Fetch a single plan by its ID. */
 export async function handleGetPlan(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.merchant) throw new UnauthorizedError();
@@ -49,6 +52,7 @@ export async function handleGetPlan(req: Request, res: Response, next: NextFunct
   }
 }
 
+/** Partial update of a plan's mutable fields (name, description, isActive). */
 export async function handleUpdatePlan(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.merchant) throw new UnauthorizedError();
@@ -60,6 +64,7 @@ export async function handleUpdatePlan(req: Request, res: Response, next: NextFu
   }
 }
 
+/** Soft-delete (archive) a plan. Blocked if active subscriptions reference it. */
 export async function handleArchivePlan(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.merchant) throw new UnauthorizedError();
