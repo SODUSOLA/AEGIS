@@ -9,6 +9,10 @@ export const createCustomerSchema = z.object({
       .toLowerCase()
       .trim(),
     name: z.string().min(1).max(200).trim().optional(),
+    phone: z
+      .string()
+      .regex(/^\+?[1-9]\d{1,14}$/, 'Phone must be a valid E.164 format e.g. +2348012345678')
+      .optional(),
     nombaTokenKey: z.string().min(1).trim().optional(),
     metadata: z.record(z.unknown()).optional(),
   }),
@@ -20,6 +24,10 @@ export const updateCustomerSchema = z.object({
   }),
   body: z.object({
     name: z.string().min(1).max(200).trim().optional(),
+    phone: z
+      .string()
+      .regex(/^\+?[1-9]\d{1,14}$/, 'Phone must be a valid E.164 format e.g. +2348012345678')
+      .optional(),
     metadata: z.record(z.unknown()).optional(),
   }),
 });

@@ -170,6 +170,7 @@ export async function executeCharge(options: ExecuteChargeOptions): Promise<Char
       planInterval: subscription.plan.interval,
       planIntervalDays: subscription.plan.intervalDays,
       previousStatus: subscription.status,
+      chargeAmountKobo: amountKobo,
     });
 
     return { success: true, transactionId: transaction.id };
@@ -201,6 +202,7 @@ interface SuccessHandlerOptions {
   planInterval: string;
   planIntervalDays: number | null;
   previousStatus: string;
+  chargeAmountKobo?: number;
 }
 
 async function handleSuccessfulCharge(opts: SuccessHandlerOptions): Promise<void> {
@@ -259,6 +261,32 @@ async function handleSuccessfulCharge(opts: SuccessHandlerOptions): Promise<void
       eventType: 'PAYMENT_RECOVERED',
       metadata: { transactionId, chargeType },
     });
+
+    try {
+      const sub = await prisma.subscription.findUnique({
+        where: { id: subscriptionId },
+        select: {
+          currentPeriodEnd: true,
+          customer: { select: { email: true, name: true, phone: true } },
+          plan: { select: { name: true } },
+        },
+      });
+      if (sub?.customer) {
+        const { sendPaymentRecoveredEmail } = await import('../services/notification.service');
+        await sendPaymentRecoveredEmail({
+          customerEmail: sub.customer.email,
+          customerName: sub.customer.name ?? undefined,
+          planName: sub.plan.name,
+          amountKobo: opts.chargeAmountKobo ?? 0,
+          nextBillingDate: sub.currentPeriodEnd,
+        });
+      }
+    } catch (emailErr) {
+      logger.warn('Failed to send payment-recovered email', {
+        subscriptionId,
+        error: emailErr,
+      });
+    }
   } else {
     await prisma.subscriptionEvent.create({
       data: {
@@ -334,7 +362,7 @@ async function handleFailedCharge(opts: FailureHandlerOptions): Promise<void> {
   });
 
   if (permanent) {
-    logger.warn('Permanent card failure — skipping dunning, escalating to SUSPENDED', {
+    logger.warn('Permanent card failure — escalating directly to SUSPENDED', {
       subscriptionId,
       failureReason,
     });
@@ -347,6 +375,41 @@ async function handleFailedCharge(opts: FailureHandlerOptions): Promise<void> {
         nextRetryAt: null,
       },
     });
+
+    await transitionSubscriptionStatus({
+      subscriptionId,
+      toStatus: 'SUSPENDED',
+      eventType: 'DUNNING_EXHAUSTED',
+      metadata: {
+        reason: 'PERMANENT_CARD_FAILURE',
+        failureReason,
+        chargeType,
+      },
+    });
+
+    try {
+      const sub = await prisma.subscription.findUnique({
+        where: { id: subscriptionId },
+        select: {
+          customer: { select: { email: true, name: true, phone: true } },
+          plan: { select: { name: true } },
+        },
+      });
+      if (sub?.customer) {
+        const { sendUpdateCardEmail } = await import('../services/notification.service');
+        await sendUpdateCardEmail({
+          customerEmail: sub.customer.email,
+          customerName: sub.customer.name ?? undefined,
+          planName: sub.plan.name,
+          failureReason,
+        });
+      }
+    } catch (emailErr) {
+      logger.warn('Failed to send update-card email on permanent failure', {
+        subscriptionId,
+        error: emailErr,
+      });
+    }
 
     return;
   }
@@ -387,7 +450,7 @@ async function handleFailedCharge(opts: FailureHandlerOptions): Promise<void> {
       nextRetryAt: nextRetryAt.toISOString(),
     });
   } else {
-    logger.warn('Max dunning retries reached', {
+    logger.warn('Max dunning retries exhausted — transitioning to SUSPENDED', {
       subscriptionId,
       retryAttempt,
       maxRetries,
@@ -400,6 +463,41 @@ async function handleFailedCharge(opts: FailureHandlerOptions): Promise<void> {
         nextRetryAt: null,
       },
     });
+
+    await transitionSubscriptionStatus({
+      subscriptionId,
+      toStatus: 'SUSPENDED',
+      eventType: 'DUNNING_EXHAUSTED',
+      metadata: {
+        reason: 'MAX_RETRIES_EXHAUSTED',
+        totalAttempts: retryAttempt + 1,
+        failureReason,
+      },
+    });
+
+    try {
+      const sub = await prisma.subscription.findUnique({
+        where: { id: subscriptionId },
+        select: {
+          customer: { select: { email: true, name: true, phone: true } },
+          plan: { select: { name: true } },
+        },
+      });
+      if (sub?.customer) {
+        const { sendSubscriptionSuspendedEmail } = await import('../services/notification.service');
+        await sendSubscriptionSuspendedEmail({
+          customerEmail: sub.customer.email,
+          customerName: sub.customer.name ?? undefined,
+          planName: sub.plan.name,
+          totalAttempts: retryAttempt + 1,
+        });
+      }
+    } catch (emailErr) {
+      logger.warn('Failed to send suspension email after max retries', {
+        subscriptionId,
+        error: emailErr,
+      });
+    }
   }
 }
 

@@ -103,6 +103,7 @@ model Customer {
   merchantId         String    @map("merchant_id")
   email              String
   name               String?
+  phone              String?
   nombaTokenKey      String?   @map("nomba_token_key")
   nombaCustomerToken String?   @map("nomba_customer_token")
   metadata           Json?

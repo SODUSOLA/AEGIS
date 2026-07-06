@@ -22,8 +22,9 @@ export async function createCustomer(merchantId: string, input: CreateCustomerIn
       where: { merchantId_email: { merchantId, email: input.email } },
       data: {
         name: input.name ?? null,
+        phone: input.phone ?? null,
         nombaTokenKey: input.nombaTokenKey ?? null,
-      metadata: (input.metadata ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+        metadata: (input.metadata ?? Prisma.JsonNull) as Prisma.InputJsonValue,
         isDeleted: false,
         deletedAt: null,
       },
@@ -31,6 +32,7 @@ export async function createCustomer(merchantId: string, input: CreateCustomerIn
         id: true,
         email: true,
         name: true,
+        phone: true,
         nombaTokenKey: true,
         metadata: true,
         createdAt: true,
@@ -47,6 +49,7 @@ export async function createCustomer(merchantId: string, input: CreateCustomerIn
       merchantId,
       email: input.email,
       name: input.name ?? null,
+      phone: input.phone ?? null,
       nombaTokenKey: input.nombaTokenKey ?? null,
       metadata: (input.metadata ?? Prisma.JsonNull) as Prisma.InputJsonValue,
     },
@@ -54,6 +57,7 @@ export async function createCustomer(merchantId: string, input: CreateCustomerIn
       id: true,
       email: true,
       name: true,
+      phone: true,
       nombaTokenKey: true,
       metadata: true,
       createdAt: true,
@@ -85,6 +89,7 @@ export async function listCustomers(
         id: true,
         email: true,
         name: true,
+        phone: true,
         nombaTokenKey: true,
         metadata: true,
         createdAt: true,
@@ -109,6 +114,7 @@ export async function getCustomerById(merchantId: string, customerId: string) {
       id: true,
       email: true,
       name: true,
+      phone: true,
       nombaTokenKey: true,
       metadata: true,
       createdAt: true,
@@ -155,12 +161,14 @@ export async function updateCustomer(
     where: { id: customerId },
     data: {
       ...(input.name !== undefined && { name: input.name }),
+      ...(input.phone !== undefined && { phone: input.phone }),
       ...(input.metadata !== undefined && { metadata: input.metadata as Prisma.InputJsonValue }),
     },
     select: {
       id: true,
       email: true,
       name: true,
+      phone: true,
       nombaTokenKey: true,
       metadata: true,
       createdAt: true,
@@ -230,6 +238,7 @@ function transformCustomer(customer: {
   id: string;
   email: string;
   name: string | null;
+  phone: string | null;
   nombaTokenKey: string | null;
   metadata: Prisma.JsonValue;
   createdAt: Date;

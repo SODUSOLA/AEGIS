@@ -5,6 +5,7 @@ import { prisma } from './db/prisma';
 import { disconnectRedis } from './db/redis';
 import { closeAllQueues } from './queues/queue.registry';
 import { startAllWorkers, stopAllWorkers } from './startup/workers';
+import { closeEmailTransporter } from './integrations/email/email.client';
 
 async function bootstrap() {
   try {
@@ -42,6 +43,8 @@ async function bootstrap() {
     await stopAllWorkers();
 
     await closeAllQueues();
+
+    closeEmailTransporter();
 
     await disconnectRedis();
 

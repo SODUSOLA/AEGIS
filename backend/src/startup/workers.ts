@@ -2,6 +2,7 @@ import { Worker } from 'bullmq';
 import { startSchedulerWorker, registerBillingCronJob } from '../queues/workers/scheduler.worker';
 import { startRenewalWorker } from '../queues/workers/renewal.worker';
 import { startProrationWorker } from '../queues/workers/proration.worker';
+import { startDunningWorker } from '../queues/workers/dunning.worker';
 import { logger } from '../lib/logger';
 
 let _workers: Worker[] = [];
@@ -13,8 +14,9 @@ export async function startAllWorkers(): Promise<void> {
     const schedulerWorker = startSchedulerWorker();
     const renewalWorker = startRenewalWorker();
     const prorationWorker = startProrationWorker();
+    const dunningWorker = startDunningWorker();
 
-    _workers = [schedulerWorker, renewalWorker, prorationWorker];
+    _workers = [schedulerWorker, renewalWorker, prorationWorker, dunningWorker];
 
     await registerBillingCronJob();
 

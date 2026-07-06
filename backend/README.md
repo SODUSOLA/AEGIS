@@ -4,7 +4,7 @@ Subscription infrastructure engine for Nomba — recurring billing with automate
 
 ## Architecture
 
-```
+```bash
 src/
 ├── config/         Environment & constants
 ├── db/             Prisma & Redis clients
@@ -43,5 +43,9 @@ npm run dev               # starts with tsx watch
 - **Dunning** retries 1h → 24h → 72h on retriable failures, then suspends
 
 ## Test
-
 See [runbook](./runbook.md) for the full Phase 1–3 acceptance test suite.
+
+## DB Architecture design
+
+See [Database Architecture design board here...](https://miro.com/app/board/uXjVHON9WGI=/?moveToWidget=3458764676929668528&cot=10)
+
