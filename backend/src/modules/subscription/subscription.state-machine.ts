@@ -2,6 +2,7 @@ import { Prisma, SubscriptionStatus } from '@prisma/client';
 import { prisma } from '../../db/prisma';
 import { AppError } from '../../lib/errors';
 import { logger } from '../../lib/logger';
+import { emitWebhookEvent } from '../../services/event.emitter';
 
 const VALID_TRANSITIONS: Record<SubscriptionStatus, SubscriptionStatus[]> = {
   TRIALING:  ['ACTIVE', 'PAST_DUE', 'CANCELLED', 'EXPIRED'],
@@ -73,6 +74,19 @@ export async function transitionSubscriptionStatus(options: TransitionOptions) {
     from: fromStatus,
     to: toStatus,
     eventType: resolvedEventType,
+  });
+
+  emitWebhookEvent({
+    merchantId: subscription.merchantId,
+    subscriptionId,
+    stateEventType: resolvedEventType,
+    metadata: metadata ?? {},
+  }).catch((err) => {
+    logger.error('Unexpected error in emitWebhookEvent — should never throw', {
+      subscriptionId,
+      eventType: resolvedEventType,
+      error: err,
+    });
   });
 
   return updatedSubscription;

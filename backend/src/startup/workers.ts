@@ -3,6 +3,8 @@ import { startSchedulerWorker, registerBillingCronJob } from '../queues/workers/
 import { startRenewalWorker } from '../queues/workers/renewal.worker';
 import { startProrationWorker } from '../queues/workers/proration.worker';
 import { startDunningWorker } from '../queues/workers/dunning.worker';
+import { startWebhookDeliveryWorker } from '../queues/workers/webhook.delivery.worker';
+import { startUptimePinger, stopUptimePinger } from '../jobs/uptime.pinger';
 import { logger } from '../lib/logger';
 
 let _workers: Worker[] = [];
@@ -15,8 +17,11 @@ export async function startAllWorkers(): Promise<void> {
     const renewalWorker = startRenewalWorker();
     const prorationWorker = startProrationWorker();
     const dunningWorker = startDunningWorker();
+    const webhookDeliveryWorker = startWebhookDeliveryWorker();
 
-    _workers = [schedulerWorker, renewalWorker, prorationWorker, dunningWorker];
+    _workers = [schedulerWorker, renewalWorker, prorationWorker, dunningWorker, webhookDeliveryWorker];
+
+    startUptimePinger();
 
     await registerBillingCronJob();
 
@@ -31,6 +36,8 @@ export async function startAllWorkers(): Promise<void> {
 
 export async function stopAllWorkers(): Promise<void> {
   logger.info('Stopping all background workers...');
+
+  stopUptimePinger();
 
   await Promise.allSettled(
     _workers.map((worker) =>

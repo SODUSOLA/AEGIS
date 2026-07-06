@@ -33,12 +33,15 @@ const envSchema = z.object({
   SCHEDULER_INTERVAL_SECONDS: z.string().default('60').transform(Number),
   WORKER_CONCURRENCY: z.string().default('5').transform(Number),
   APP_BASE_URL: z.string().url().default('http://localhost:3000'),
+
+  WEBHOOK_MAX_DELIVERY_ATTEMPTS: z.string().default('4').transform(Number),
+  UPTIME_PING_INTERVAL_SECONDS: z.string().default('300').transform(Number),
 });
 
 const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
-  console.error('❌ Invalid environment variables:');
+  console.error('Invalid environment variables:');
   console.error(JSON.stringify(parsed.error.format(), null, 2));
   process.exit(1);
 }
