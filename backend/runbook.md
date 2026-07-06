@@ -1,4 +1,4 @@
-# AEGIS Backend — Acceptance Test Runbook (Phase 1–3)
+# AEGIS Backend — Acceptance Test Runbook (Phase 1–5)
 
 ## Prerequisites
 
@@ -8,6 +8,7 @@ Ensure the following are in place before running any tests:
 - **npm dependencies** installed (`npm install`)
 - **Database migrated** (`npm run db:migrate`)
 - **`.env` configured** with valid sandbox Nomba credentials (see `.env.example`)
+- **SMTP credentials** configured in `.env` for email delivery tests
 - **Server running** (`npm run dev` or `npm run build && npm start`)
 - **`jq` installed** for JSON parsing (`brew install jq`)
 
@@ -22,7 +23,7 @@ npm install
 npm run db:generate
 npm run db:migrate
 
-# Copy and edit .env (fill in Nomba sandbox credentials)
+# Copy and edit .env (fill in Nomba sandbox credentials + SMTP)
 cp .env.example .env
 
 # Start dev server
@@ -38,11 +39,15 @@ When the server starts successfully, you should see these log lines (order may v
 3. `Billing scheduler worker started`
 4. `Renewal worker started`
 5. `Proration worker started`
-6. `All background workers started successfully`
-7. `AEGIS is running`
+6. `Dunning worker started`
+7. `Webhook delivery worker started`
+8. `Uptime pinger started`
+9. `All background workers started successfully`
+10. `AEGIS is running`
 
 Additional logs you may see:
 - `Billing cron job registered` (scheduler interval registration)
+- `BullMQ Redis connection established`
 - `Background workers started`
 
 ---
@@ -756,9 +761,480 @@ curl -s http://localhost:3000/api/v1/subscriptions/$SUB_FAIL \
 
 ---
 
-## Part 4 — Graceful Shutdown & Restart
+## Part 4 — Dunning Engine & Notification Service
 
-### 4.1 — SIGTERM handling
+The dunning engine handles failed recurring charges with a retry schedule (1h, 24h, 72h). It sends email notifications to customers at each stage: dunning started, retry scheduled, payment recovered, card update required, and subscription suspended.
+
+### 4.1 — Create a customer with phone number
+
+```bash
+CUSTOMER_DUN=$(curl -s -X POST http://localhost:3000/api/v1/customers \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -d '{
+    "email": "dunning-test@example.com",
+    "name": "Dunning Test",
+    "phone": "+2348012345678",
+    "nombaTokenKey": "tok_test_insufficient"
+  }' | jq -r '.data.id')
+echo "CUSTOMER_DUN=$CUSTOMER_DUN"
+```
+
+**Expected:** Customer object includes `phone` field, `hasPaymentMethod: true`.
+
+### 4.2 — Create a failing subscription and trigger dunning
+
+```bash
+# Create subscription with short interval (CUSTOM/1-day plan from 2.3)
+SUB_DUN=$(curl -s -X POST http://localhost:3000/api/v1/subscriptions \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -d '{
+    "customerId": "'"$CUSTOMER_DUN"'",
+    "planId": "'"$PLAN3_ID"'",
+    "trialDays": 0
+  }' | jq -r '.data.id')
+echo "SUB_DUN=$SUB_DUN"
+
+# Backdate it past the period end
+psql "$DATABASE_URL" -c "
+  UPDATE subscriptions
+  SET current_period_end = NOW() - INTERVAL '1 minute'
+  WHERE id = '$SUB_DUN';
+"
+```
+
+Wait for the scheduler tick. Expected logs:
+
+```
+Charge attempt started  { chargeType: "RENEWAL", ... }
+Nomba charge response received  { success: false, code: "INSUFFICIENT_FUNDS" }
+Dunning retry scheduled  { nextRetryAttempt: 1, delayHours: 1, ... }
+```
+
+The charge worker marks it PAST_DUE and enqueues a dunning retry job.
+
+### 4.3 — Verify dunning API — list PAST_DUE subscriptions
+
+```bash
+curl -s "http://localhost:3000/api/v1/dunning?page=1&limit=10" \
+  -H "X-API-Key: $API_KEY" | jq .
+```
+
+**Expected (200):** Response includes PAST_DUE and SUSPENDED subscriptions with pagination `meta`.
+
+### 4.4 — Get dunning detail for a subscription
+
+```bash
+curl -s http://localhost:3000/api/v1/dunning/$SUB_DUN \
+  -H "X-API-Key: $API_KEY" | jq .
+```
+
+**Expected (200):** Subscription detail with `events` (last 30), current status, retry count.
+
+### 4.5 — Manual retry a dunning subscription
+
+When the subscription is PAST_DUE with a non-expired token, you can trigger a manual retry:
+
+```bash
+curl -s -X POST http://localhost:3000/api/v1/dunning/$SUB_DUN/retry \
+  -H "X-API-Key: $API_KEY" | jq .
+```
+
+**Expected (202):**
+```json
+{
+  "success": true,
+  "message": "Manual retry enqueued for subscription SUB_DUN",
+  "data": {
+    "jobId": "...",
+    "subscriptionId": "SUB_DUN",
+    "retryAttempt": 2
+  }
+}
+```
+
+### 4.6 — Permanent failure transitions to SUSPENDED
+
+Create a customer with an expired card token:
+
+```bash
+CUSTOMER_EXP=$(curl -s -X POST http://localhost:3000/api/v1/customers \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -d '{
+    "email": "expired@example.com",
+    "name": "Expired Card",
+    "phone": "+2348012345678",
+    "nombaTokenKey": "tok_test_expired"
+  }' | jq -r '.data.id')
+
+SUB_EXP=$(curl -s -X POST http://localhost:3000/api/v1/subscriptions \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -d '{
+    "customerId": "'"$CUSTOMER_EXP"'",
+    "planId": "'"$PLAN3_ID"'",
+    "trialDays": 0
+  }' | jq -r '.data.id')
+
+psql "$DATABASE_URL" -c "
+  UPDATE subscriptions
+  SET current_period_end = NOW() - INTERVAL '1 minute'
+  WHERE id = '$SUB_EXP';
+"
+```
+
+Wait for scheduler. Expected logs:
+
+```
+Charge attempt started  { chargeType: "RENEWAL", ... }
+Nomba charge response received  { success: false, code: "EXPIRED_CARD" }
+Permanent card failure — escalating to SUSPENDED
+```
+
+Verify:
+
+```bash
+curl -s http://localhost:3000/api/v1/subscriptions/$SUB_EXP \
+  -H "X-API-Key: $API_KEY" | jq '.data | {status, retryCount, lastFailureReason}'
+```
+
+**Expected:** `status: "SUSPENDED"`, `retryCount: 99`, `lastFailureReason: "EXPIRED_CARD"`.
+
+### 4.7 — Reactivate a SUSPENDED subscription
+
+After the customer updates their card, the merchant can reactivate:
+
+```bash
+# First update payment method
+curl -s -X PATCH http://localhost:3000/api/v1/customers/$CUSTOMER_EXP/payment-method \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -d '{"nombaTokenKey": "tok_test_ok"}' | jq .
+
+# Then reactivate
+curl -s -X POST http://localhost:3000/api/v1/dunning/$SUB_EXP/reactivate \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -d '{}' | jq .
+```
+
+**Expected (200):**
+```json
+{
+  "success": true,
+  "message": "Subscription reactivated. A new billing period has started.",
+  "data": {
+    "subscription": { "id": "...", "status": "ACTIVE", ... }
+  }
+}
+```
+
+### 4.8 — Verify Nomba webhook signature verification
+
+Send a test webhook with proper signature headers:
+
+```bash
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+SECRET="NombaHackathon2026"
+PAYLOAD='{"event_type":"payment_success","requestId":"test-verify-001","data":{"merchant":{"walletId":"wlt-001","walletBalance":5000,"userId":"usr-001"},"terminal":{},"transaction":{"fee":0,"type":"vact_transfer","transactionId":"txn-001","responseCode":"","originatingFrom":"api","transactionAmount":5000,"time":"2026-07-06T10:00:00Z"},"customer":{},"order":{"orderId":"ord-001","orderReference":"test-ref-001","amount":5000,"currency":"NGN","isTokenizedCardPayment":"true","paymentMethod":"card"}}}'
+
+SIG=$(node -e "
+const crypto = require('crypto');
+const p = JSON.parse(process.env.PAYLOAD);
+const t = p.data.transaction, m = p.data.merchant;
+let rc = t.responseCode || ''; if (rc === 'null') rc = '';
+const s = [p.event_type,p.requestId,m.userId,m.walletId,t.transactionId,t.type,t.time,rc,'$TIMESTAMP'].join(':');
+console.log(crypto.createHmac('sha256','$SECRET').update(s).digest('base64'));
+" PAYLOAD="$PAYLOAD")
+
+curl -s -X POST http://localhost:3000/api/v1/webhooks/nomba \
+  -H "Content-Type: application/json" \
+  -H "nomba-signature: $SIG" \
+  -H "nomba-timestamp: $TIMESTAMP" \
+  -d "$PAYLOAD" | jq .
+```
+
+**Expected (200):** `{ "received": true }`
+
+Server logs should show: `Nomba webhook verified and received`.
+
+Without valid signature, the webhook is still acknowledged but not processed:
+
+```bash
+curl -s -X POST http://localhost:3000/api/v1/webhooks/nomba \
+  -H "Content-Type: application/json" \
+  -H "nomba-signature: invalid" \
+  -H "nomba-timestamp: 2026-07-06T00:00:00Z" \
+  -d '{"event_type":"payment_success","requestId":"test-bad-sig","data":{}}' | jq .
+```
+
+**Expected:** Still 200, but log shows `Nomba webhook signature verification failed`.
+
+---
+
+## Part 5 — Inbound Webhook Processor & Outbound Webhook Delivery
+
+### 5.1 — Verify inbound webhook deduplication
+
+Send the same valid webhook twice. The second should be deduplicated:
+
+```bash
+# Use the same payload and signature from 4.8
+curl -s -X POST http://localhost:3000/api/v1/webhooks/nomba \
+  -H "Content-Type: application/json" \
+  -H "nomba-signature: $SIG" \
+  -H "nomba-timestamp: $TIMESTAMP" \
+  -d "$PAYLOAD" | jq .
+```
+
+**Second call expected:** Log shows `Nomba webhook deduplicated — already processed`.
+
+### 5.2 — Token capture via payment_success webhook
+
+Send a webhook with `isTokenizedCardPayment: "true"` and `tokenizedCardData`:
+
+```bash
+CAPTURE_PAYLOAD='{
+  "event_type": "payment_success",
+  "requestId": "capture-test-001",
+  "data": {
+    "merchant": {"walletId": "wlt-001", "walletBalance": 5000, "userId": "usr-001"},
+    "terminal": {},
+    "transaction": {
+      "fee": 0, "type": "vact_transfer", "transactionId": "txn-capture-001",
+      "responseCode": "", "originatingFrom": "api",
+      "transactionAmount": 5000, "time": "2026-07-06T10:00:00Z"
+    },
+    "customer": {},
+    "order": {
+      "orderId": "ord-capture-001",
+      "orderReference": "CAPTURE_'$CUSTOMER_ID'",
+      "amount": 5000, "currency": "NGN",
+      "isTokenizedCardPayment": "true", "paymentMethod": "card"
+    },
+    "tokenizedCardData": {
+      "tokenKey": "tok_captured_from_webhook",
+      "customerEmail": "john@example.com",
+      "cardType": "Verve",
+      "cardPan": "506099********0003",
+      "tokenExpirationDate": "12/27"
+    }
+  }
+}'
+
+# Create a PENDING transaction first so the webhook has something to reconcile
+psql "$DATABASE_URL" -c "
+  INSERT INTO transactions (id, merchant_id, subscription_id, amount_kobo, currency, status, idempotency_key, charge_type, created_at, updated_at)
+  VALUES (gen_random_uuid()::text, '$MERCHANT_ID', '$SUB_ID', 5000, 'NGN', 'PENDING', 'CAPTURE_$CUSTOMER_ID', 'INITIAL', NOW(), NOW());
+"
+
+T2=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+CAPTURE_SIG=$(node -e "
+const crypto = require('crypto');
+const p = JSON.parse(process.env.PAYLOAD);
+const t = p.data.transaction, m = p.data.merchant;
+let rc = t.responseCode || ''; if (rc === 'null') rc = '';
+const s = [p.event_type,p.requestId,m.userId,m.walletId,t.transactionId,t.type,t.time,rc,'$T2'].join(':');
+console.log(crypto.createHmac('sha256','$SECRET').update(s).digest('base64'));
+" PAYLOAD="$CAPTURE_PAYLOAD")
+
+curl -s -X POST http://localhost:3000/api/v1/webhooks/nomba \
+  -H "Content-Type: application/json" \
+  -H "nomba-signature: $CAPTURE_SIG" \
+  -H "nomba-timestamp: $T2" \
+  -d "$CAPTURE_PAYLOAD" | jq .
+```
+
+**Expected:** Log shows `tokenKey captured and stored from payment_success webhook`. Verify:
+
+```bash
+curl -s http://localhost:3000/api/v1/customers/$CUSTOMER_ID \
+  -H "X-API-Key: $API_KEY" | jq '.data | {email, hasPaymentMethod}'
+```
+
+### 5.3 — Create a webhook endpoint (outbound)
+
+```bash
+# Use a webhook.site URL for testing
+ENDPOINT_URL="https://webhook.site/your-unique-url"
+
+ENDPOINT_RESULT=$(curl -s -X POST http://localhost:3000/api/v1/webhooks/endpoints \
+  -H "X-API-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "'"$ENDPOINT_URL"'",
+    "subscribedEvents": ["subscription.activated", "charge.recovered", "charge.failed"],
+    "description": "Test endpoint from runbook"
+  }')
+
+echo "$ENDPOINT_RESULT" | jq .
+ENDPOINT_ID=$(echo "$ENDPOINT_RESULT" | jq -r '.data.id')
+ENDPOINT_SECRET=$(echo "$ENDPOINT_RESULT" | jq -r '.data.secret')
+echo "ENDPOINT_ID=$ENDPOINT_ID"
+echo "ENDPOINT_SECRET=$ENDPOINT_SECRET"
+```
+
+**Expected (201):** Endpoint object with `secret` starting with `whsec_`. The `_note` warns it will not be shown again.
+
+### 5.4 — List webhook endpoints
+
+```bash
+curl -s http://localhost:3000/api/v1/webhooks/endpoints \
+  -H "X-API-Key: $API_KEY" | jq .
+```
+
+**Expected (200):** Endpoints list — `secret` field absent.
+
+### 5.5 — Get webhook endpoint detail
+
+```bash
+curl -s http://localhost:3000/api/v1/webhooks/endpoints/$ENDPOINT_ID \
+  -H "X-API-Key: $API_KEY" | jq .
+```
+
+**Expected:** Single endpoint object, no `secret` field visible.
+
+### 5.6 — Non-HTTPS endpoint rejected
+
+```bash
+curl -s -X POST http://localhost:3000/api/v1/webhooks/endpoints \
+  -H "X-API-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "http://insecure.example.com", "subscribedEvents": ["charge.failed"]}' | jq .
+```
+
+**Expected (422):** Validation error — HTTPS required.
+
+### 5.7 — Update endpoint (subscribe to all events)
+
+```bash
+curl -s -X PATCH http://localhost:3000/api/v1/webhooks/endpoints/$ENDPOINT_ID \
+  -H "X-API-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "subscribedEvents": ["subscription.activated", "subscription.past_due", "subscription.suspended", "subscription.cancelled", "subscription.expired", "charge.succeeded", "charge.failed", "charge.recovered", "dunning.started", "plan.changed"]
+  }' | jq .
+```
+
+**Expected (200):** Updated endpoint with all 10 event types.
+
+### 5.8 — Verify outbound delivery on state change
+
+Create a subscription that triggers `SUBSCRIPTION_ACTIVATED`:
+
+```bash
+SUB_WEBHOOK=$(curl -s -X POST http://localhost:3000/api/v1/subscriptions \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -d '{
+    "customerId": "'"$CUSTOMER_ID"'",
+    "planId": "'"$PLAN2_ID"'",
+    "trialDays": 0
+  }' | jq -r '.data.id')
+echo "SUB_WEBHOOK=$SUB_WEBHOOK"
+```
+
+Check logs for:
+```
+Outbound webhook delivery enqueued  { deliveryId: "del_...", eventId: "evt_...", aegisEventType: "subscription.activated", ... }
+Webhook delivery attempt completed  { deliveryId: "...", endpointUrl: "...", responseStatus: 200, success: true, ... }
+```
+
+Verify delivery record:
+
+```bash
+curl -s "http://localhost:3000/api/v1/webhooks/endpoints/$ENDPOINT_ID/deliveries" \
+  -H "X-API-Key: $API_KEY" | jq .
+```
+
+**Expected:** Delivery with `status: "DELIVERED"`, `eventType: "subscription.activated"`, `attemptCount: 1`.
+
+### 5.9 — Verify signature on delivered payload (self-test)
+
+Using the endpoint secret from creation and the raw body from webhook.site:
+
+```bash
+node -e "
+const crypto = require('crypto');
+const secret = '$ENDPOINT_SECRET';
+const rawBody = 'PASTE_RAW_BODY_FROM_WEBHOOK_SITE';
+const header = 'PASTE_X_AEGIS_SIGNATURE_HEADER';
+const computed = 'sha256=' + crypto.createHmac('sha256', secret).update(rawBody).digest('base64');
+console.log('Computed:', computed);
+console.log('Received:', header);
+console.log('Match:', crypto.timingSafeEqual(Buffer.from(computed), Buffer.from(header)));
+"
+```
+
+**Expected:** Prints `Match: true`.
+
+### 5.10 — Failed delivery retry test
+
+Create another endpoint pointing to a URL that returns 500 (use webhook.site custom response):
+
+```bash
+ENDPOINT_FAIL=$(curl -s -X POST http://localhost:3000/api/v1/webhooks/endpoints \
+  -H "X-API-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://webhook.site/your-failing-url",
+    "subscribedEvents": ["subscription.activated"]
+  }' | jq -r '.data.id')
+
+# Trigger another subscription
+SUB_FAIL_WEB=$(curl -s -X POST http://localhost:3000/api/v1/subscriptions \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -d '{
+    "customerId": "'"$CUSTOMER_ID"'",
+    "planId": "'"$PLAN2_ID"'",
+    "trialDays": 0
+  }' | jq -r '.data.id')
+```
+
+Check logs for retry sequence:
+- First attempt fails → status becomes `RETRYING`
+- After delay, second attempt fires
+- After 4 total attempts → status becomes `FAILED`
+
+### 5.11 — Delete webhook endpoint
+
+```bash
+curl -s -X DELETE http://localhost:3000/api/v1/webhooks/endpoints/$ENDPOINT_ID \
+  -H "X-API-Key: $API_KEY" | jq .
+```
+
+**Expected (200):** `{ "success": true, "message": "Webhook endpoint deleted" }`
+
+Verify deletion:
+
+```bash
+curl -s http://localhost:3000/api/v1/webhooks/endpoints/$ENDPOINT_ID \
+  -H "X-API-Key: $API_KEY" | jq .
+```
+
+**Expected (404):** `{ "success": false, "message": "Webhook endpoint not found" }`
+
+### 5.12 — Verify uptime pinger is running
+
+Check the server logs at startup:
+```
+Uptime pinger started  { intervalSeconds: 300, url: "http://localhost:3000/health" }
+```
+
+After startup, every 300 seconds (configurable via `UPTIME_PING_INTERVAL_SECONDS`):
+
+```
+Uptime ping success  { url: "http://localhost:3000/health", status: 200 }
+```
+
+---
+
+## Part 6 — Graceful Shutdown & Restart
+
+### 6.1 — SIGTERM handling
 
 Find the server process and send SIGTERM:
 
@@ -781,11 +1257,11 @@ All BullMQ queues closed
 Graceful shutdown complete
 ```
 
-### 4.2 — Worker drain
+### 6.2 — Worker drain
 
 To test that in-flight jobs complete during shutdown, start a subscription that's due for renewal, send SIGTERM while the charge is processing, and verify the transaction reaches a terminal state (`SUCCESS` or `FAILED`).
 
-### 4.3 — Restart state recovery
+### 6.3 — Restart state recovery
 
 ```bash
 npm run dev
@@ -801,9 +1277,9 @@ Any subscriptions that became due during downtime will be picked up on the next 
 
 ---
 
-## Part 5 — Error Scenarios
+## Part 7 — Error Scenarios
 
-### 5.1 — Invalid API key
+### 7.1 — Invalid API key
 
 ```bash
 curl -s http://localhost:3000/api/v1/plans \
@@ -818,7 +1294,7 @@ curl -s http://localhost:3000/api/v1/plans \
 }
 ```
 
-### 5.2 — Missing API key header
+### 7.2 — Missing API key header
 
 ```bash
 curl -s http://localhost:3000/api/v1/plans | jq .
@@ -832,7 +1308,7 @@ curl -s http://localhost:3000/api/v1/plans | jq .
 }
 ```
 
-### 5.3 — Invalid API key format (not starting with ak_live_ or ak_test_)
+### 7.3 — Invalid API key format (not starting with ak_live_ or ak_test_)
 
 ```bash
 curl -s http://localhost:3000/api/v1/plans \
@@ -847,7 +1323,7 @@ curl -s http://localhost:3000/api/v1/plans \
 }
 ```
 
-### 5.4 — Duplicate merchant email
+### 7.4 — Duplicate merchant email
 
 ```bash
 curl -s -X POST http://localhost:3000/api/v1/merchants/register \
@@ -866,7 +1342,7 @@ curl -s -X POST http://localhost:3000/api/v1/merchants/register \
 }
 ```
 
-### 5.5 — Duplicate customer email (within same merchant)
+### 7.5 — Duplicate customer email (within same merchant)
 
 ```bash
 curl -s -X POST http://localhost:3000/api/v1/customers \
@@ -886,7 +1362,7 @@ curl -s -X POST http://localhost:3000/api/v1/customers \
 }
 ```
 
-### 5.6 — Subscription not found
+### 7.6 — Subscription not found
 
 ```bash
 curl -s http://localhost:3000/api/v1/subscriptions/nonexistent-id-12345 \
@@ -901,7 +1377,7 @@ curl -s http://localhost:3000/api/v1/subscriptions/nonexistent-id-12345 \
 }
 ```
 
-### 5.7 — Plan not found
+### 7.7 — Plan not found
 
 ```bash
 curl -s http://localhost:3000/api/v1/plans/nonexistent-plan-id \
@@ -916,7 +1392,7 @@ curl -s http://localhost:3000/api/v1/plans/nonexistent-plan-id \
 }
 ```
 
-### 5.8 — Duplicate plan name
+### 7.8 — Duplicate plan name
 
 ```bash
 curl -s -X POST http://localhost:3000/api/v1/plans \
@@ -937,7 +1413,7 @@ curl -s -X POST http://localhost:3000/api/v1/plans \
 }
 ```
 
-### 5.9 — Create subscription without payment method and no trial
+### 7.9 — Create subscription without payment method and no trial
 
 ```bash
 curl -s -X POST http://localhost:3000/api/v1/subscriptions \
@@ -958,7 +1434,7 @@ curl -s -X POST http://localhost:3000/api/v1/subscriptions \
 }
 ```
 
-### 5.10 — Plan change on non-ACTIVE subscription
+### 7.10 — Plan change on non-ACTIVE subscription
 
 ```bash
 # Cancel the subscription first
@@ -984,7 +1460,7 @@ curl -s -X POST http://localhost:3000/api/v1/subscriptions/$SUB_ID/change-plan \
 }
 ```
 
-### 5.11 — Nomba auth failure (invalid credentials)
+### 7.11 — Nomba auth failure (invalid credentials)
 
 Temporarily set invalid Nomba credentials in `.env` and restart:
 
@@ -1007,7 +1483,7 @@ And the charge attempt will fail with a network/timeout error on the `chargeToke
 }
 ```
 
-### 5.12 — Expired card (permanent failure)
+### 7.12 — Expired card (permanent failure — SUSPENDED)
 
 ```bash
 # Create customer with expired card token
@@ -1042,7 +1518,7 @@ Wait for scheduler tick. Expected logs:
 ```
 Charge attempt started  { chargeType: "RENEWAL", ... }
 Nomba charge response received  { success: false, code: "EXPIRED_CARD" }
-Permanent card failure — skipping dunning, escalating to SUSPENDED
+Permanent card failure — escalating to SUSPENDED
 ```
 
 Verify subscription state:
@@ -1052,9 +1528,9 @@ curl -s http://localhost:3000/api/v1/subscriptions/$SUB_EXPIRED \
   -H "X-API-Key: $API_KEY" | jq '.data | {status, retryCount, lastFailureReason}'
 ```
 
-**Expected:** `status: "PAST_DUE"`, `retryCount: 99`, `lastFailureReason: "EXPIRED_CARD"` (the subscription is marked PAST_DUE and retries are exhausted — no dunning scheduled).
+**Expected:** `status: "SUSPENDED"`, `retryCount: 99`, `lastFailureReason: "EXPIRED_CARD"`. The subscription is suspended and an `update_card` email is sent.
 
-### 5.13 — Route not found (404)
+### 7.13 — Route not found (404)
 
 ```bash
 curl -s http://localhost:3000/api/v1/nonexistent-route \
@@ -1069,7 +1545,7 @@ curl -s http://localhost:3000/api/v1/nonexistent-route \
 }
 ```
 
-### 5.14 — Archive plan with active subscriptions
+### 7.14 — Archive plan with active subscriptions
 
 ```bash
 curl -s -X DELETE http://localhost:3000/api/v1/plans/$PLAN_ID \
@@ -1084,7 +1560,7 @@ curl -s -X DELETE http://localhost:3000/api/v1/plans/$PLAN_ID \
 }
 ```
 
-### 5.15 — Delete customer with active subscriptions
+### 7.15 — Delete customer with active subscriptions
 
 ```bash
 curl -s -X DELETE http://localhost:3000/api/v1/customers/$CUSTOMER_ID \
@@ -1116,10 +1592,21 @@ curl -s -X DELETE http://localhost:3000/api/v1/customers/$CUSTOMER_ID \
 | `NOMBA_CLIENT_ID` | — | Nomba OAuth client ID |
 | `NOMBA_CLIENT_SECRET` | — | Nomba OAuth client secret |
 | `NOMBA_ACCOUNT_ID` | — | Nomba account ID |
+| `NOMBA_SUB_ACCOUNT_ID` | — | Nomba sub-account for scoped operations |
+| `NOMBA_WEBHOOK_SECRET` | — | Shared secret for webhook HMAC verification |
 | `SCHEDULER_INTERVAL_SECONDS` | `60` | Billing scheduler tick interval |
 | `WORKER_CONCURRENCY` | `5` | BullMQ worker concurrency |
 | `RATE_LIMIT_WINDOW_MS` | `900000` | Rate limit window (15 min) |
 | `RATE_LIMIT_MAX_REQUESTS` | `100` | Max requests per window |
+| `SMTP_HOST` | — | SMTP server hostname |
+| `SMTP_PORT` | `587` | SMTP server port |
+| `SMTP_SECURE` | `false` | Use TLS for SMTP |
+| `SMTP_USER` | — | SMTP authentication username |
+| `SMTP_PASS` | — | SMTP authentication password |
+| `SMTP_FROM` | — | Default from-address for emails |
+| `APP_BASE_URL` | `http://localhost:3000` | Public URL (used for Nomba callbackUrl + uptime pinger) |
+| `WEBHOOK_MAX_DELIVERY_ATTEMPTS` | `4` | Max outbound webhook retries |
+| `UPTIME_PING_INTERVAL_SECONDS` | `300` | Self-ping interval for Railway keepalive |
 
 ### API Endpoints Summary
 
@@ -1144,6 +1631,17 @@ curl -s -X DELETE http://localhost:3000/api/v1/customers/$CUSTOMER_ID \
 | `GET` | `/api/v1/subscriptions/:id` | Yes | Get subscription |
 | `POST` | `/api/v1/subscriptions/:id/cancel` | Yes | Cancel subscription |
 | `POST` | `/api/v1/subscriptions/:id/change-plan` | Yes | Change subscription plan |
+| `GET` | `/api/v1/dunning` | Yes | List dunning (PAST_DUE / SUSPENDED) subscriptions |
+| `GET` | `/api/v1/dunning/:id` | Yes | Get dunning detail with events |
+| `POST` | `/api/v1/dunning/:id/retry` | Yes | Trigger manual dunning retry |
+| `POST` | `/api/v1/dunning/:id/reactivate` | Yes | Reactivate SUSPENDED subscription |
+| `POST` | `/api/v1/webhooks/nomba` | No | Inbound Nomba webhook receiver |
+| `POST` | `/api/v1/webhooks/endpoints` | Yes | Register outbound webhook endpoint |
+| `GET` | `/api/v1/webhooks/endpoints` | Yes | List webhook endpoints |
+| `GET` | `/api/v1/webhooks/endpoints/:id` | Yes | Get endpoint detail |
+| `PATCH` | `/api/v1/webhooks/endpoints/:id` | Yes | Update endpoint |
+| `DELETE` | `/api/v1/webhooks/endpoints/:id` | Yes | Delete endpoint |
+| `GET` | `/api/v1/webhooks/endpoints/:id/deliveries` | Yes | List delivery logs for endpoint |
 
 ### State Machine Transitions
 
@@ -1160,9 +1658,18 @@ EXPIRED   → (terminal)
 
 | Attempt | Delay | Action |
 |---|---|---|
-| 1 | 1 hour | Retry charge |
-| 2 | 24 hours | Retry charge |
-| 3 | 72 hours | Retry charge |
-| 4+ | — | Max retries reached, no further action |
+| 1 | 1 hour | Retry charge, send `retry_scheduled` email |
+| 2 | 24 hours | Retry charge, send `retry_scheduled` email |
+| 3 | 72 hours | Retry charge, send `retry_scheduled` email |
+| 4+ | — | Max retries reached, subscription → `SUSPENDED`, send `subscription_suspended` email |
 
-Permanent failures (`EXPIRED_CARD`, `INVALID_CARD`) skip dunning entirely.
+Permanent failures (`EXPIRED_CARD`, `INVALID_CARD`) bypass the retry schedule entirely — subscription goes directly to `SUSPENDED` and an `update_card` email is sent.
+
+### Outbound Webhook Delivery Retry Schedule
+
+| Attempt | Delay | Action |
+|---|---|---|
+| 1 | 0s (immediate) | First delivery attempt |
+| 2 | 5 minutes | Retry |
+| 3 | 30 minutes | Retry |
+| 4 | 2 hours | Final attempt, then mark `FAILED` |
