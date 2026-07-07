@@ -141,13 +141,15 @@ export async function getRevenueTrend(merchantId: string) {
     dailyMap.set(day, (dailyMap.get(day) ?? 0) + tx.amountKobo);
   }
 
-  return Array.from(dailyMap.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, amountKobo]) => ({
-      date,
-      amountKobo,
-      amountNaira: formatNaira(amountKobo),
-    }));
+  const result: Array<{ date: string; amountKobo: number; amountNaira: number }> = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+    const day = d.toISOString().slice(0, 10);
+    const amountKobo = dailyMap.get(day) ?? 0;
+    result.push({ date: day, amountKobo, amountNaira: amountKobo / 100 });
+  }
+
+  return result;
 }
 
 // ─── At-Risk ────────────────────────────────────────
@@ -206,8 +208,8 @@ export interface SubscriptionBoardQuery {
  * currentPeriodEnd, or createdAt.
  */
 export async function getSubscriptionBoard(merchantId: string, query: SubscriptionBoardQuery) {
-  const page = query.page ?? 1;
-  const limit = query.limit ?? 20;
+  const page = Number(query.page) || 1;
+  const limit = Number(query.limit) || 20;
   const sortBy = query.sortBy ?? 'createdAt';
   const sortOrder = query.sortOrder ?? 'desc';
 
