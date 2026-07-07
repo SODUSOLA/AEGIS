@@ -29,12 +29,14 @@ router.post('/nomba', async (req: Request, res: Response) => {
 
   const payload = req.body as NombaWebhookPayload;
 
-  const isValid = verifyNombaWebhookSignature(
-    payload,
-    nombaSignature,
-    nombaTimestamp,
-    env.NOMBA_WEBHOOK_SECRET,
-  );
+  const isValid = env.NOMBA_WEBHOOK_SECRET
+    ? verifyNombaWebhookSignature(
+      payload,
+      nombaSignature,
+      nombaTimestamp,
+      env.NOMBA_WEBHOOK_SECRET,
+    )
+    : true;
 
   if (!isValid) {
     logger.warn('Nomba webhook signature verification failed', {

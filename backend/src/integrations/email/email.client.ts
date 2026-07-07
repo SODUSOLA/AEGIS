@@ -8,7 +8,10 @@ import { SendEmailOptions } from './email.types';
 let _transporter: Transporter | null = null;
 
 /** Returns the cached SMTP transporter, creating it on first call. */
-function getTransporter(): Transporter {
+function getTransporter(): Transporter | null {
+  if (!env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASS) {
+    return null;
+  }
   if (!_transporter) {
     _transporter = nodemailer.createTransport({
       host: env.SMTP_HOST,
@@ -43,6 +46,13 @@ function getTransporter(): Transporter {
  */
 export async function sendEmail(options: SendEmailOptions): Promise<void> {
   const transporter = getTransporter();
+  if (!transporter) {
+    logger.warn('SMTP not configured — email skipped', {
+      toDomain: options.to.split('@')[1],
+      subject: options.subject,
+    });
+    return;
+  }
   try {
     const info = await transporter.sendMail({
       from: env.SMTP_FROM,
@@ -66,8 +76,13 @@ export async function sendEmail(options: SendEmailOptions): Promise<void> {
 
 /** Verifies the SMTP connection is alive (used at startup / health-check). */
 export async function verifyEmailConnection(): Promise<boolean> {
+  const transporter = getTransporter();
+  if (!transporter) {
+    logger.info('SMTP not configured — skipping connection verification');
+    return false;
+  }
   try {
-    await getTransporter().verify();
+    await transporter.verify();
     logger.info('SMTP connection verified');
     return true;
   } catch (error) {

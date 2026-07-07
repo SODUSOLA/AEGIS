@@ -21,6 +21,9 @@ const AUTH_TIMEOUT_MS = 15_000;
  * in that order.
  */
 export async function getNombaAccessToken(): Promise<string> {
+  if (!env.NOMBA_CLIENT_ID || !env.NOMBA_CLIENT_SECRET) {
+    throw new Error('Nomba is not configured (NOMBA_CLIENT_ID / NOMBA_CLIENT_SECRET missing)');
+  }
   const redis = getRedisClient();
 
   // Fast path: use cached access token if still valid
