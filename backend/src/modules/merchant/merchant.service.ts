@@ -1,7 +1,8 @@
 import { prisma } from '../../db/prisma';
-import { ConflictError } from '../../lib/errors';
+import { ConflictError, UnauthorizedError } from '../../lib/errors';
 import { logger } from '../../lib/logger';
-import { RegisterMerchantInput } from './merchant.schema';
+import { hashPassword, verifyPassword } from '../../lib/password';
+import { RegisterMerchantInput, LoginMerchantInput } from './merchant.schema';
 import {
   generateApiKey,
   generateWebhookSecret,
@@ -25,13 +26,26 @@ export interface MerchantRegistrationResult {
   apiKey: string;
 }
 
+/** Return shape for merchant login — includes merchant profile + API key for subsequent requests. */
+export interface LoginResult {
+  merchant: {
+    id: string;
+    businessName: string;
+    email: string;
+    apiKeyPreview: string;
+    status: string;
+    createdAt: Date;
+  };
+  apiKey: string;
+}
+
 // ─── Service Functions ─────────────────────────────
 
-/** Register a new merchant account: validates uniqueness, generates API key + webhook secret. */
+/** Register a new merchant account: validates uniqueness, hashes password, generates API key + webhook secret. */
 export async function registerMerchant(
   input: RegisterMerchantInput,
 ): Promise<MerchantRegistrationResult> {
-  const { businessName, email } = input;
+  const { businessName, email, password } = input;
 
   const existing = await prisma.merchant.findUnique({
     where: { email },
@@ -42,6 +56,7 @@ export async function registerMerchant(
     throw new ConflictError('A merchant account with this email already exists.');
   }
 
+  const passwordHash = hashPassword(password);
   const rawApiKey = generateApiKey();
   const apiKeyHash = hashApiKey(rawApiKey);
   const apiKeyPreview = getApiKeyPreview(rawApiKey);
@@ -51,6 +66,7 @@ export async function registerMerchant(
     data: {
       businessName,
       email,
+      passwordHash,
       apiKeyHash,
       apiKeyPreview,
       webhookSecret,
@@ -73,6 +89,61 @@ export async function registerMerchant(
 
   return {
     merchant,
+    apiKey: rawApiKey,
+  };
+}
+
+/** Authenticate a merchant by email + password. Returns merchant profile + a fresh API key. */
+export async function loginMerchant(
+  input: LoginMerchantInput,
+): Promise<LoginResult> {
+  const { email, password } = input;
+
+  const merchant = await prisma.merchant.findUnique({
+    where: { email },
+  });
+
+  if (!merchant || !merchant.passwordHash) {
+    throw new UnauthorizedError('Invalid email or password.');
+  }
+
+  if (merchant.status !== 'ACTIVE') {
+    throw new UnauthorizedError('Account is suspended.');
+  }
+
+  const valid = verifyPassword(password, merchant.passwordHash);
+  if (!valid) {
+    throw new UnauthorizedError('Invalid email or password.');
+  }
+
+  // Generate a fresh API key and rotate the hash (each login invalidates the old key).
+  const rawApiKey = generateApiKey();
+  const apiKeyHash = hashApiKey(rawApiKey);
+  const apiKeyPreview = getApiKeyPreview(rawApiKey);
+
+  const updated = await prisma.merchant.update({
+    where: { id: merchant.id },
+    data: {
+      apiKeyHash,
+      apiKeyPreview,
+    },
+    select: {
+      id: true,
+      businessName: true,
+      email: true,
+      apiKeyPreview: true,
+      status: true,
+      createdAt: true,
+    },
+  });
+
+  logger.info('Merchant logged in — API key rotated', {
+    merchantId: merchant.id,
+    email: merchant.email,
+  });
+
+  return {
+    merchant: updated,
     apiKey: rawApiKey,
   };
 }

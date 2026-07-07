@@ -1,7 +1,9 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { AuthLayout } from "@/components/auth/AuthLayout";
+import { useApiKey } from "@/hooks/useApiKey";
+import { aegis } from "@/api/aegis";
 
 export const Route = createFileRoute("/login")({
   head: () => ({
@@ -15,7 +17,27 @@ export const Route = createFileRoute("/login")({
 
 function LoginPage() {
   const [showPw, setShowPw] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { setApiKey } = useApiKey();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      const result = await aegis.login(email, password);
+      setApiKey(result.apiKey);
+      navigate({ to: "/dashboard" });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Login failed");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <AuthLayout>
@@ -24,13 +46,13 @@ function LoginPage() {
         <p className="text-sm text-[#6B7280]">Log in to your AEGIS dashboard</p>
       </div>
 
-      <form
-        className="mt-10 space-y-5"
-        onSubmit={(e) => {
-          e.preventDefault();
-          navigate({ to: "/dashboard" });
-        }}
-      >
+      <form className="mt-10 space-y-5" onSubmit={handleSubmit}>
+        {error && (
+          <div className="rounded-[10px] border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+            {error}
+          </div>
+        )}
+
         <div className="space-y-2">
           <label htmlFor="email" className="block text-xs font-medium text-[#94A3B8]">
             Email Address
@@ -38,8 +60,11 @@ function LoginPage() {
           <input
             id="email"
             type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
             placeholder="you@company.com"
             autoComplete="email"
+            required
             className="w-full rounded-[10px] border border-white/[0.08] bg-[#1A1A1A] px-4 py-3 text-sm text-white placeholder:text-[#6B7280] outline-none transition-colors focus:border-[#94A3B8]/40 focus:ring-1 focus:ring-[#94A3B8]/20"
           />
         </div>
@@ -49,19 +74,16 @@ function LoginPage() {
             <label htmlFor="password" className="block text-xs font-medium text-[#94A3B8]">
               Password
             </label>
-            <a
-              href="#"
-              className="text-xs text-[#6B7280] transition-colors hover:text-[#94A3B8]"
-            >
-              Forgot password?
-            </a>
           </div>
           <div className="relative">
             <input
               id="password"
               type={showPw ? "text" : "password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
               autoComplete="current-password"
+              required
               className="w-full rounded-[10px] border border-white/[0.08] bg-[#1A1A1A] px-4 py-3 pr-12 text-sm text-white placeholder:text-[#6B7280] outline-none transition-colors focus:border-[#94A3B8]/40 focus:ring-1 focus:ring-[#94A3B8]/20"
             />
             <button
@@ -77,9 +99,11 @@ function LoginPage() {
 
         <button
           type="submit"
-          className="w-full rounded-full bg-[#94A3B8] py-3 text-sm font-semibold text-[#0A0A0A] transition-all hover:bg-[#b8c5d3] hover:shadow-[0_0_24px_rgba(148,163,184,0.18)]"
+          disabled={loading}
+          className="flex w-full items-center justify-center gap-2 rounded-full bg-[#94A3B8] py-3 text-sm font-semibold text-[#0A0A0A] transition-all hover:bg-[#b8c5d3] hover:shadow-[0_0_24px_rgba(148,163,184,0.18)] disabled:opacity-50"
         >
-          Log In
+          {loading && <Loader2 size={16} className="animate-spin" />}
+          {loading ? "Logging in..." : "Log In"}
         </button>
       </form>
 

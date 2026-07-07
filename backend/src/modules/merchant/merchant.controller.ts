@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { registerMerchantSchema } from './merchant.schema';
-import { registerMerchant, getMerchantById } from './merchant.service';
+import { registerMerchantSchema, loginMerchantSchema } from './merchant.schema';
+import { registerMerchant, loginMerchant, getMerchantById } from './merchant.service';
 import { successResponse } from '../../lib/response';
 import { NotFoundError, UnauthorizedError } from '../../lib/errors';
 
@@ -22,6 +22,24 @@ export async function handleRegisterMerchant(
           apiKey: result.apiKey,
         },
       ),
+    );
+  } catch (error) {
+    next(error);
+  }
+}
+
+/** Authenticate a merchant via email + password. Returns merchant profile + a fresh API key. */
+export async function handleLoginMerchant(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const { body } = loginMerchantSchema.parse({ body: req.body });
+    const result = await loginMerchant(body);
+
+    res.status(200).json(
+      successResponse('Login successful. Use the returned API key for subsequent requests.', result),
     );
   } catch (error) {
     next(error);

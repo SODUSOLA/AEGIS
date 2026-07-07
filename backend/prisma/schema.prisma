@@ -61,6 +61,7 @@ model Merchant {
   email          String         @unique
   apiKeyHash     String         @unique @map("api_key_hash")
   apiKeyPreview  String         @map("api_key_preview")
+  passwordHash   String?        @map("password_hash")
   webhookSecret  String         @map("webhook_secret")
   status         MerchantStatus @default(ACTIVE)
   createdAt      DateTime       @default(now()) @map("created_at")

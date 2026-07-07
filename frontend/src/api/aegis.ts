@@ -97,6 +97,27 @@ export interface SubscriptionListResponse {
   pageSize: number;
 }
 
+const API_BASE = import.meta.env.VITE_AEGIS_API_URL || 'http://localhost:3001/api/v1';
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const apiKey = typeof window !== 'undefined' ? localStorage.getItem('aegis-api-key') : null;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string>),
+  };
+  if (apiKey) headers['X-API-Key'] = apiKey;
+
+  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+
+  const json = await res.json();
+
+  if (!res.ok) {
+    throw new Error(json.message || `Request failed with status ${res.status}`);
+  }
+
+  return json.data as T;
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function randomBetween(min: number, max: number) {
@@ -397,5 +418,21 @@ export const aegis = {
     const subscriptions = filtered.slice(start, start + pageSize);
 
     return { subscriptions, total, page, pageSize };
+  },
+
+  // ─── Auth (real API calls) ────────────────────────
+
+  async login(email: string, password: string) {
+    return request<{ merchant: Record<string, unknown>; apiKey: string }>('/merchants/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    });
+  },
+
+  async register(businessName: string, email: string, password: string) {
+    return request<{ merchant: Record<string, unknown>; apiKey: string }>('/merchants/register', {
+      method: 'POST',
+      body: JSON.stringify({ businessName, email, password }),
+    });
   },
 };
