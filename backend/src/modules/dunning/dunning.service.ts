@@ -218,6 +218,15 @@ export async function manualReactivate(
     },
   });
 
+  try {
+    const { recalculatePulseScore } = await import('../../lib/pulse.score');
+    await recalculatePulseScore(subscriptionId);
+  } catch (scoreErr) {
+    logger.warn('Pulse score recalculation failed after reactivation — non-critical', {
+      subscriptionId, error: scoreErr,
+    });
+  }
+
   logger.info('Subscription manually reactivated', { merchantId, subscriptionId });
 
   return {

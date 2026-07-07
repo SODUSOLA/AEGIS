@@ -7,6 +7,7 @@ import subscriptionRouter from '../modules/subscription/subscription.routes';
 import inboundWebhookRouter from '../modules/webhook/inbound/inbound.routes';
 import outboundWebhookRouter from '../modules/webhook/outbound/outbound.routes';
 import dunningRouter from '../modules/dunning/dunning.routes';
+import dashboardRouter from '../modules/dashboard/dashboard.routes';
 
 const API_PREFIX = '/api/v1';
 
@@ -19,6 +20,7 @@ export function registerRoutes(app: Application): void {
   app.use(`${API_PREFIX}/customers`, customerRouter);
   app.use(`${API_PREFIX}/subscriptions`, subscriptionRouter);
   app.use(`${API_PREFIX}/dunning`, dunningRouter);
+  app.use(`${API_PREFIX}/dashboard`, dashboardRouter);
   app.use(`${API_PREFIX}/webhooks`, inboundWebhookRouter);
   app.use(`${API_PREFIX}/webhooks`, outboundWebhookRouter);
 

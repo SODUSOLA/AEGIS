@@ -1,9 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Fragment as FragmentRow } from "react";
-import { useState } from "react";
+import { Fragment, useState, useCallback } from "react";
 import { Copy, Check, Plus, X, ChevronDown, ChevronRight } from "lucide-react";
 import { AppShell } from "@/components/app/AppShell";
 import { useTheme } from "@/lib/theme";
+import { aegis, type WebhookEndpoint, type WebhookDelivery } from "@/api/aegis";
+import { usePolling } from "@/hooks/usePolling";
 
 export const Route = createFileRoute("/webhooks")({
   head: () => ({ meta: [{ title: "Webhooks — AEGIS" }] }),
@@ -23,42 +24,40 @@ const EVENT_TYPES = [
 ];
 
 type InboundStatus = "processed" | "duplicate" | "failed";
-const INBOUND: Array<{ event: string; received: string; status: InboundStatus; sub: string }> = [
-  { event: "charge.succeeded", received: "Today, 09:14am", status: "processed", sub: "sub_01...9a21" },
-  { event: "charge.failed", received: "Yesterday, 11:32pm", status: "processed", sub: "sub_03...44b8" },
-  { event: "subscription.activated", received: "Yesterday, 08:04pm", status: "processed", sub: "sub_02...02cd" },
-  { event: "charge.succeeded", received: "Jun 28, 07:10am", status: "duplicate", sub: "sub_01...9a21" },
-  { event: "charge.failed", received: "Jun 27, 06:22pm", status: "failed", sub: "sub_04...ff11" },
-  { event: "subscription.past_due", received: "Jun 26, 11:00am", status: "processed", sub: "sub_03...44b8" },
-];
-
 type DeliveryStatus = "delivered" | "failed" | "retrying";
-const DELIVERIES: Array<{ url: string; event: string; attempts: string; last: string; status: DeliveryStatus; payload: object }> = [
-  { url: "https://api.acme.com/hooks/aegis", event: "charge.succeeded", attempts: "Immediate", last: "Today, 09:14am", status: "delivered", payload: { id: "evt_9a21", type: "charge.succeeded", amount: 5000, currency: "NGN" } },
-  { url: "https://api.acme.com/hooks/aegis", event: "charge.failed", attempts: "Immediate → +5min → +30min", last: "Yesterday, 11:32pm", status: "retrying", payload: { id: "evt_44b8", type: "charge.failed", reason: "insufficient_funds" } },
-  { url: "https://relay.techcorp.ng/aegis", event: "subscription.activated", attempts: "Immediate", last: "Yesterday, 08:04pm", status: "delivered", payload: { id: "evt_02cd", type: "subscription.activated", sub: "sub_02" } },
-  { url: "https://relay.techcorp.ng/aegis", event: "dunning.started", attempts: "Immediate → +5min", last: "Jun 27, 06:22pm", status: "failed", payload: { id: "evt_ff11", type: "dunning.started", reason: "network_timeout" } },
-  { url: "https://api.acme.com/hooks/aegis", event: "plan.changed", attempts: "Immediate", last: "Jun 26, 03:15pm", status: "delivered", payload: { id: "evt_c001", type: "plan.changed", from: "Starter", to: "Premium" } },
-  { url: "https://api.acme.com/hooks/aegis", event: "charge.recovered", attempts: "Immediate → +5min → +30min", last: "Jun 25, 10:00am", status: "delivered", payload: { id: "evt_b002", type: "charge.recovered", amount: 5000 } },
-];
-
-interface Endpoint {
-  id: string;
-  url: string;
-  events: string[];
-  secret: string;
-  active: boolean;
-}
 
 function WebhooksPage() {
   const { tokens, mode } = useTheme();
   const [tab, setTab] = useState<"inbound" | "outbound">("inbound");
-  const [endpoints, setEndpoints] = useState<Endpoint[]>([
-    { id: "ep_1", url: "https://api.acme.com/hooks/aegis", events: ["charge.succeeded", "charge.failed", "subscription.activated"], secret: "whsec_9c8f7e6d5a4b3c2d1e0f", active: true },
-    { id: "ep_2", url: "https://relay.techcorp.ng/aegis", events: ["dunning.started", "subscription.suspended", "plan.changed"], secret: "whsec_aa11bb22cc33dd44ee55", active: false },
-  ]);
   const [showModal, setShowModal] = useState(false);
-  const [expanded, setExpanded] = useState<number | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [deliveries, setDeliveries] = useState<Record<string, WebhookDelivery[]>>({});
+
+  const { data: endpoints, refresh } = usePolling<WebhookEndpoint[]>(() => aegis.getWebhookEndpoints(), 30000);
+  const epList = endpoints ?? [];
+
+  const handleToggle = useCallback(async (ep: WebhookEndpoint) => {
+    await aegis.toggleWebhookEndpoint(ep.id, !ep.active);
+    refresh();
+  }, [refresh]);
+
+  const handleExpand = useCallback(async (epId: string) => {
+    if (expanded === epId) {
+      setExpanded(null);
+      return;
+    }
+    setExpanded(epId);
+    if (!deliveries[epId]) {
+      const data = await aegis.getWebhookDeliveries(epId);
+      setDeliveries((prev) => ({ ...prev, [epId]: data }));
+    }
+  }, [expanded, deliveries]);
+
+  const handleAddEndpoint = useCallback(async (url: string, events: string[]) => {
+    await aegis.createWebhookEndpoint(url, events);
+    refresh();
+    setShowModal(false);
+  }, [refresh]);
 
   const cardStyle: React.CSSProperties = {
     background: tokens.cardBg, border: tokens.cardBorder, boxShadow: tokens.cardShadow,
@@ -111,25 +110,7 @@ function WebhooksPage() {
       {tab === "inbound" && (
         <section>
           {label("Nomba → AEGIS")}
-          <div style={{ ...cardStyle, padding: 0, overflow: "hidden" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead>
-                <tr style={{ borderBottom: `1px solid ${tokens.divider}` }}>
-                  {["Event Type", "Received At", "Processing Status", "Linked Subscription"].map((h) => (<th key={h} style={th}>{h}</th>))}
-                </tr>
-              </thead>
-              <tbody>
-                {INBOUND.map((r, i) => (
-                  <tr key={i} style={{ borderBottom: i === INBOUND.length - 1 ? "none" : `1px solid ${tokens.divider}` }}>
-                    <td style={{ padding: "14px 16px" }}>{pill(r.event)}</td>
-                    <td style={{ padding: "14px 16px", color: tokens.muted }}>{r.received}</td>
-                    <td style={{ padding: "14px 16px" }}>{badge(r.status, inbColor(r.status))}</td>
-                    <td style={{ padding: "14px 16px", ...mono, color: tokens.muted }}>{r.sub}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <InboundTable tokens={tokens} cardStyle={cardStyle} th={th} pill={pill} badge={badge} inbColor={inbColor} mono={mono} />
         </section>
       )}
 
@@ -146,74 +127,40 @@ function WebhooksPage() {
               </button>
             </div>
             <div style={{ display: "grid", gap: 16 }}>
-              {endpoints.map((ep) => (
+              {epList.map((ep) => (
                 <EndpointCard
                   key={ep.id}
                   endpoint={ep}
-                  onToggle={() => setEndpoints((prev) => prev.map((e) => (e.id === ep.id ? { ...e, active: !e.active } : e)))}
+                  onToggle={() => handleToggle(ep)}
+                  onExpand={() => handleExpand(ep.id)}
+                  isExpanded={expanded === ep.id}
+                  deliveries={deliveries[ep.id] ?? []}
                   cardStyle={cardStyle}
                   tokens={tokens}
                   mode={mode}
                   mono={mono}
                   pill={pill}
+                  delColor={delColor}
+                  badge={badge}
+                  th={th}
                 />
               ))}
             </div>
           </section>
 
-          <section>
-            {label("Delivery Log")}
-            <div style={{ ...cardStyle, padding: 0, overflow: "hidden" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                <thead>
-                  <tr style={{ borderBottom: `1px solid ${tokens.divider}` }}>
-                    <th style={{ ...th, width: 32 }} />
-                    {["Endpoint URL", "Event Type", "Attempts", "Last Attempted", "Status"].map((h) => (<th key={h} style={th}>{h}</th>))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {DELIVERIES.map((r, i) => {
-                    const open = expanded === i;
-                    return (
-                      <FragmentRow key={i}>
-                        <tr onClick={() => setExpanded(open ? null : i)}
-                          style={{ borderBottom: `1px solid ${tokens.divider}`, cursor: "pointer" }}
-                          onMouseEnter={(e) => (e.currentTarget.style.background = tokens.hover)}
-                          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                        >
-                          <td style={{ padding: "14px 16px", color: tokens.muted }}>{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</td>
-                          <td style={{ padding: "14px 16px", color: tokens.text, maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.url}</td>
-                          <td style={{ padding: "14px 16px" }}>{pill(r.event)}</td>
-                          <td style={{ padding: "14px 16px", color: tokens.muted, ...mono }}>{r.attempts}</td>
-                          <td style={{ padding: "14px 16px", color: tokens.muted }}>{r.last}</td>
-                          <td style={{ padding: "14px 16px" }}>{badge(r.status, delColor(r.status))}</td>
-                        </tr>
-                        {open && (
-                          <tr>
-                            <td colSpan={6} style={{ padding: 0, background: mode === "dark" ? "#000" : "#0A0A0A" }}>
-                              <pre style={{ ...mono, color: "#94A3B8", padding: 20, margin: 0, overflow: "auto" }}>
-{JSON.stringify(r.payload, null, 2)}
-                              </pre>
-                            </td>
-                          </tr>
-                        )}
-                      </FragmentRow>
-                    );
-                  })}
-                </tbody>
-              </table>
+          {epList.length === 0 && (
+            <div style={{ padding: "80px 24px", textAlign: "center", border: `1px dashed ${tokens.divider}`, borderRadius: 16 }}>
+              <div className="font-display" style={{ fontSize: 18, color: tokens.text, marginBottom: 8 }}>No endpoints configured</div>
+              <div style={{ fontSize: 13, color: tokens.muted }}>Add an endpoint to receive webhooks from AEGIS</div>
             </div>
-          </section>
+          )}
         </>
       )}
 
       {showModal && (
         <AddEndpointModal
           onClose={() => setShowModal(false)}
-          onAdd={(url, events) => {
-            setEndpoints((prev) => [...prev, { id: `ep_${prev.length + 1}`, url, events, secret: `whsec_${Math.random().toString(36).slice(2, 20)}`, active: true }]);
-            setShowModal(false);
-          }}
+          onAdd={handleAddEndpoint}
           tokens={tokens}
           mode={mode}
         />
@@ -222,9 +169,42 @@ function WebhooksPage() {
   );
 }
 
-function EndpointCard({ endpoint, onToggle, cardStyle, tokens, mode, mono, pill }: any) {
+const INBOUND_DATA: Array<{ event: string; received: string; status: InboundStatus; sub: string }> = [
+  { event: "charge.succeeded", received: "Today, 09:14am", status: "processed", sub: "sub_01...9a21" },
+  { event: "charge.failed", received: "Yesterday, 11:32pm", status: "processed", sub: "sub_03...44b8" },
+  { event: "subscription.activated", received: "Yesterday, 08:04pm", status: "processed", sub: "sub_02...02cd" },
+  { event: "charge.succeeded", received: "Jun 28, 07:10am", status: "duplicate", sub: "sub_01...9a21" },
+  { event: "charge.failed", received: "Jun 27, 06:22pm", status: "failed", sub: "sub_04...ff11" },
+  { event: "subscription.past_due", received: "Jun 26, 11:00am", status: "processed", sub: "sub_03...44b8" },
+];
+
+function InboundTable({ tokens, cardStyle, th, pill, badge, inbColor, mono }: any) {
+  return (
+    <div style={{ ...cardStyle, padding: 0, overflow: "hidden" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <thead>
+          <tr style={{ borderBottom: `1px solid ${tokens.divider}` }}>
+            {["Event Type", "Received At", "Processing Status", "Linked Subscription"].map((h) => (<th key={h} style={th}>{h}</th>))}
+          </tr>
+        </thead>
+        <tbody>
+          {INBOUND_DATA.map((r, i) => (
+            <tr key={i} style={{ borderBottom: i === INBOUND_DATA.length - 1 ? "none" : `1px solid ${tokens.divider}` }}>
+              <td style={{ padding: "14px 16px" }}>{pill(r.event)}</td>
+              <td style={{ padding: "14px 16px", color: tokens.muted }}>{r.received}</td>
+              <td style={{ padding: "14px 16px" }}>{badge(r.status, inbColor(r.status))}</td>
+              <td style={{ padding: "14px 16px", ...mono, color: tokens.muted }}>{r.sub}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function EndpointCard({ endpoint, onToggle, onExpand, isExpanded, deliveries, cardStyle, tokens, mode, mono, pill, delColor, badge, th }: any) {
   const [copied, setCopied] = useState(false);
-  const masked = endpoint.secret.slice(0, 8) + "•".repeat(16) + endpoint.secret.slice(-4);
+  const masked = endpoint.secret.slice(0, 8) + "\u2022".repeat(16) + endpoint.secret.slice(-4);
   return (
     <div style={cardStyle}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 16 }}>
@@ -251,11 +231,50 @@ function EndpointCard({ endpoint, onToggle, cardStyle, tokens, mode, mono, pill 
           Rotate
         </button>
       </div>
+
+      {/* Expand/collapse deliveries */}
+      <div style={{ marginTop: 16 }}>
+        <button
+          onClick={onExpand}
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: tokens.accent, fontSize: 12, cursor: "pointer", padding: 0 }}
+        >
+          {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          {isExpanded ? "Hide deliveries" : "View deliveries"}
+        </button>
+      </div>
+
+      {isExpanded && (
+        <div style={{ marginTop: 12 }}>
+          {deliveries.length === 0 ? (
+            <div style={{ fontSize: 12, color: tokens.muted, padding: "12px 0" }}>No deliveries yet</div>
+          ) : (
+            <div style={{ ...cardStyle, padding: 0, overflow: "hidden", background: mode === "dark" ? "rgba(0,0,0,0.2)" : "rgba(0,0,0,0.02)" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead>
+                  <tr style={{ borderBottom: `1px solid ${tokens.divider}` }}>
+                    {["Event Type", "Attempts", "Last Attempted", "Status"].map((h) => (
+                      <th key={h} style={th}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {deliveries.map((del: any, i: number) => (
+                    <tr key={del.id} style={{ borderBottom: i === deliveries.length - 1 ? "none" : `1px solid ${tokens.divider}` }}>
+                      <td style={{ padding: "10px 16px" }}>{pill(del.event)}</td>
+                      <td style={{ padding: "10px 16px", color: tokens.muted, ...mono }}>{del.attempts}</td>
+                      <td style={{ padding: "10px 16px", color: tokens.muted }}>{del.lastAttempted}</td>
+                      <td style={{ padding: "10px 16px" }}>{badge(del.status, delColor(del.status))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
-
-const EVENTS = EVENT_TYPES;
 
 function AddEndpointModal({ onClose, onAdd, tokens, mode }: { onClose: () => void; onAdd: (url: string, events: string[]) => void; tokens: any; mode: string }) {
   const [url, setUrl] = useState("");
@@ -277,7 +296,7 @@ function AddEndpointModal({ onClose, onAdd, tokens, mode }: { onClose: () => voi
         <div style={{ marginBottom: 24 }}>
           <div style={{ fontSize: 11, color: tokens.muted, textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 8 }}>Events</div>
           <div style={{ display: "grid", gap: 8 }}>
-            {EVENTS.map((e) => (
+            {EVENT_TYPES.map((e) => (
               <label key={e} style={{ display: "flex", alignItems: "center", gap: 10, color: tokens.text, fontSize: 13, cursor: "pointer" }}>
                 <input type="checkbox" checked={selected.includes(e)} onChange={() => toggle(e)} />
                 <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12 }}>{e}</span>

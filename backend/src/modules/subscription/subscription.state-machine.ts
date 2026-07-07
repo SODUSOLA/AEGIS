@@ -107,6 +107,15 @@ export async function transitionSubscriptionStatus(options: TransitionOptions) {
     });
   });
 
+  try {
+    const { recalculatePulseScore } = await import('../../lib/pulse.score');
+    await recalculatePulseScore(subscriptionId);
+  } catch (scoreErr) {
+    logger.warn('Pulse score recalculation failed after transition — non-critical', {
+      subscriptionId, toStatus, error: scoreErr,
+    });
+  }
+
   return updatedSubscription;
 }
 

@@ -4,6 +4,10 @@ import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { useTheme } from "@/lib/theme";
 import { AppShell } from "@/components/app/AppShell";
 import { StatusBadge, STATUS_COLORS, type SubStatus } from "@/components/app/StatusBadge";
+import { PulseScoreBadge } from "@/components/PulseScoreBadge";
+import { RevenueChart } from "@/components/RevenueChart";
+import { aegis } from "@/api/aegis";
+import { usePolling } from "@/hooks/usePolling";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({ meta: [{ title: "Dashboard — AEGIS" }] }),
@@ -18,7 +22,6 @@ function DashboardRoute() {
   );
 }
 
-
 interface Metric {
   label: string;
   value: string;
@@ -28,40 +31,22 @@ interface Metric {
   sublabel?: string;
 }
 
-const METRICS: Metric[] = [
-  { label: "Active Subscriptions", value: "284", trend: "+12%", trendColor: "#22C55E", direction: "up" },
-  { label: "MRR", value: "₦1,420,000", trend: "+8%", trendColor: "#22C55E", direction: "up" },
-  { label: "Churn Rate", value: "2.4%", trend: "-0.3%", trendColor: "#22C55E", direction: "down" },
-  { label: "Failed Charges", value: "17", trend: "+3", trendColor: "#EF4444", direction: "up", sublabel: "today" },
-  { label: "Recovered Charges", value: "11", trend: "64% recovery", trendColor: "#94A3B8", direction: "up", sublabel: "today" },
-];
+interface StateBreak {
+  status: string;
+  count: number;
+  color: string;
+}
 
-const STATE_BREAKDOWN: { status: SubStatus; count: number }[] = [
-  { status: "ACTIVE", count: 248 },
-  { status: "TRIALING", count: 34 },
-  { status: "PAST_DUE", count: 12 },
-  { status: "SUSPENDED", count: 5 },
-  { status: "CANCELLED", count: 8 },
-  { status: "EXPIRED", count: 3 },
-];
-
-const EVENTS = [
-  { type: "charge.recovered", color: "#22C55E", customer: "adebayo@gmail.com", time: "2 mins ago" },
-  { type: "subscription.activated", color: "#22C55E", customer: "chioma@techcorp.ng", time: "5 mins ago" },
-  { type: "subscription.past_due", color: "#EAB308", customer: "emeka@startup.io", time: "12 mins ago" },
-  { type: "charge.failed", color: "#EF4444", customer: "funke@media.ng", time: "18 mins ago" },
-  { type: "subscription.activated", color: "#22C55E", customer: "tunde@saas.com", time: "31 mins ago" },
-  { type: "charge.succeeded", color: "#22C55E", customer: "ngozi@fintech.ng", time: "45 mins ago" },
-];
-
-const TX: { customer: string; plan: string; amount: string; status: SubStatus; time: string }[] = [
-  { customer: "Adebayo Okonkwo", plan: "Pro Monthly", amount: "₦15,000", status: "ACTIVE", time: "2m ago" },
-  { customer: "Chioma Eze", plan: "Enterprise", amount: "₦85,000", status: "ACTIVE", time: "8m ago" },
-  { customer: "Emeka Nwosu", plan: "Pro Monthly", amount: "₦15,000", status: "PAST_DUE", time: "12m ago" },
-  { customer: "Funke Adeyemi", plan: "Starter", amount: "₦5,000", status: "CANCELLED", time: "1h ago" },
-  { customer: "Tunde Bakare", plan: "Pro Annual", amount: "₦150,000", status: "TRIALING", time: "2h ago" },
-  { customer: "Ngozi Okafor", plan: "Pro Monthly", amount: "₦15,000", status: "ACTIVE", time: "3h ago" },
-];
+interface AtRiskSub {
+  id: string;
+  customer: string;
+  plan: string;
+  pulseScore: number;
+  status: string;
+  nextRetry: string;
+  attempt: number;
+  maxAttempts: number;
+}
 
 function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
   const { tokens } = useTheme();
@@ -101,7 +86,18 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 function DashboardContent() {
   const { tokens } = useTheme();
-  const total = STATE_BREAKDOWN.reduce((s, x) => s + x.count, 0);
+
+  const { data: overview } = usePolling(() => aegis.getOverview(), 30000);
+  const { data: revenueData } = usePolling(() => aegis.getRevenueTrend(), 30000);
+  const { data: atRisk } = usePolling(() => aegis.getAtRisk(), 30000);
+
+  const metrics = overview?.metrics ?? [];
+  const stateBreakdown = overview?.stateBreakdown ?? [];
+  const events = overview?.activity ?? [];
+  const transactions = overview?.transactions ?? [];
+  const atRiskList = atRisk ?? [];
+
+  const totalState = stateBreakdown.reduce((s, x) => s + x.count, 0);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 40 }}>
@@ -113,7 +109,7 @@ function DashboardContent() {
           gap: 16,
         }}
       >
-        {METRICS.map((m, i) => (
+        {metrics.map((m, i) => (
           <motion.div
             key={m.label}
             initial={{ opacity: 0, y: 12 }}
@@ -147,46 +143,112 @@ function DashboardContent() {
       </div>
 
       {/* Subscription states */}
-      <section>
-        <SectionLabel>Subscription States</SectionLabel>
-        <Card style={{ padding: 24 }}>
-          <div
-            style={{
-              display: "flex",
-              height: 10,
-              borderRadius: 9999,
-              overflow: "hidden",
-              marginBottom: 20,
-            }}
-          >
-            {STATE_BREAKDOWN.map((s) => (
-              <div
-                key={s.status}
-                style={{
-                  width: `${(s.count / total) * 100}%`,
-                  background: STATUS_COLORS[s.status],
-                }}
-              />
-            ))}
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 20 }}>
-            {STATE_BREAKDOWN.map((s) => (
-              <div key={s.status} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
-                <span
+      {stateBreakdown.length > 0 && (
+        <section>
+          <SectionLabel>Subscription States</SectionLabel>
+          <Card style={{ padding: 24 }}>
+            <div
+              style={{
+                display: "flex",
+                height: 10,
+                borderRadius: 9999,
+                overflow: "hidden",
+                marginBottom: 20,
+              }}
+            >
+              {stateBreakdown.map((s) => (
+                <div
+                  key={s.status}
                   style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: 9999,
-                    background: STATUS_COLORS[s.status],
+                    width: `${(s.count / totalState) * 100}%`,
+                    background: s.color,
                   }}
                 />
-                <span style={{ color: tokens.text, fontWeight: 600 }}>{s.status.replace("_", " ")}</span>
-                <span style={{ color: tokens.muted }}>{s.count}</span>
-              </div>
-            ))}
-          </div>
-        </Card>
-      </section>
+              ))}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 20 }}>
+              {stateBreakdown.map((s) => (
+                <div key={s.status} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                  <span
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: 9999,
+                      background: s.color,
+                    }}
+                  />
+                  <span style={{ color: tokens.text, fontWeight: 600 }}>{s.status.replace("_", " ")}</span>
+                  <span style={{ color: tokens.muted }}>{s.count}</span>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </section>
+      )}
+
+      {/* Revenue chart */}
+      {revenueData && (
+        <section>
+          <RevenueChart data={revenueData} />
+        </section>
+      )}
+
+      {/* At Risk */}
+      {atRiskList.length > 0 && (
+        <section>
+          <SectionLabel>At Risk</SectionLabel>
+          <Card style={{ overflow: "hidden" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: `1px solid ${tokens.divider}` }}>
+                  {["Customer", "Plan", "Status", "Pulse Score", "Next Retry", "Attempt"].map((h) => (
+                    <th
+                      key={h}
+                      style={{
+                        textAlign: "left",
+                        padding: "12px 16px",
+                        fontSize: 10,
+                        fontWeight: 500,
+                        letterSpacing: "0.18em",
+                        textTransform: "uppercase",
+                        color: tokens.muted,
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {atRiskList.map((r, i) => (
+                  <tr
+                    key={r.id}
+                    style={{
+                      borderBottom: i < atRiskList.length - 1 ? `1px solid ${tokens.divider}` : "none",
+                      transition: "background 150ms ease",
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = tokens.hover)}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                  >
+                    <td style={{ padding: "14px 16px", color: tokens.text }}>{r.customer}</td>
+                    <td style={{ padding: "14px 16px", color: tokens.muted }}>{r.plan}</td>
+                    <td style={{ padding: "14px 16px" }}>
+                      <StatusBadge status={r.status as SubStatus} />
+                    </td>
+                    <td style={{ padding: "14px 16px" }}>
+                      <PulseScoreBadge score={r.pulseScore} />
+                    </td>
+                    <td style={{ padding: "14px 16px", color: tokens.text }}>{r.nextRetry}</td>
+                    <td style={{ padding: "14px 16px", color: tokens.muted }}>
+                      {r.attempt}/{r.maxAttempts}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+        </section>
+      )}
 
       {/* Activity + Transactions side by side on wide screens */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: 32 }}>
@@ -194,7 +256,7 @@ function DashboardContent() {
         <section>
           <SectionLabel>Live Activity</SectionLabel>
           <Card>
-            {EVENTS.map((e, i) => (
+            {events.map((e, i) => (
               <div
                 key={i}
                 style={{
@@ -202,7 +264,7 @@ function DashboardContent() {
                   alignItems: "center",
                   gap: 12,
                   padding: "14px 20px",
-                  borderBottom: i < EVENTS.length - 1 ? `1px solid ${tokens.divider}` : "none",
+                  borderBottom: i < events.length - 1 ? `1px solid ${tokens.divider}` : "none",
                 }}
               >
                 <span style={{ width: 8, height: 8, borderRadius: 9999, background: e.color, flexShrink: 0 }} />
@@ -249,11 +311,11 @@ function DashboardContent() {
                 </tr>
               </thead>
               <tbody>
-                {TX.map((t, i) => (
+                {transactions.map((t, i) => (
                   <tr
                     key={i}
                     style={{
-                      borderBottom: i < TX.length - 1 ? `1px solid ${tokens.divider}` : "none",
+                      borderBottom: i < transactions.length - 1 ? `1px solid ${tokens.divider}` : "none",
                       transition: "background 150ms ease",
                     }}
                     onMouseEnter={(e) => (e.currentTarget.style.background = tokens.hover)}
@@ -263,7 +325,7 @@ function DashboardContent() {
                     <td style={{ padding: "14px 16px", color: tokens.muted }}>{t.plan}</td>
                     <td style={{ padding: "14px 16px", color: tokens.text, fontVariantNumeric: "tabular-nums" }}>{t.amount}</td>
                     <td style={{ padding: "14px 16px" }}>
-                      <StatusBadge status={t.status} />
+                      <StatusBadge status={t.status as SubStatus} />
                     </td>
                     <td style={{ padding: "14px 16px", color: tokens.muted }}>{t.time}</td>
                   </tr>

@@ -332,6 +332,15 @@ async function handleSuccessfulCharge(opts: SuccessHandlerOptions): Promise<void
     });
   }
 
+  try {
+    const { recalculatePulseScore } = await import('../lib/pulse.score');
+    await recalculatePulseScore(subscriptionId);
+  } catch (scoreErr) {
+    logger.warn('Pulse score recalculation failed after success — non-critical', {
+      subscriptionId, error: scoreErr,
+    });
+  }
+
   logger.info('Charge succeeded', {
     subscriptionId,
     transactionId,
@@ -542,6 +551,15 @@ async function handleFailedCharge(opts: FailureHandlerOptions): Promise<void> {
         error: emailErr,
       });
     }
+  }
+
+  try {
+    const { recalculatePulseScore } = await import('../lib/pulse.score');
+    await recalculatePulseScore(subscriptionId);
+  } catch (scoreErr) {
+    logger.warn('Pulse score recalculation failed after failure — non-critical', {
+      subscriptionId, error: scoreErr,
+    });
   }
 }
 
