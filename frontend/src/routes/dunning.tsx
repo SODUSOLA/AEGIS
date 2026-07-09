@@ -27,7 +27,8 @@ interface DunningRow {
 function DunningPage() {
   const { tokens, mode } = useTheme();
 
-  const { data: rows, refresh } = usePolling<DunningRow[]>(() => aegis.getDunning() as Promise<DunningRow[]>, 30000);
+  const fetchDunning = useCallback(() => aegis.getDunning() as Promise<DunningRow[]>, []);
+  const { data: rows, refresh } = usePolling<DunningRow[]>(fetchDunning, 30000);
 
   const pastDue = (rows ?? []).filter((r) => r.status === "PAST_DUE");
   const suspended = (rows ?? []).filter((r) => r.status === "SUSPENDED");

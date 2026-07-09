@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { motion } from "framer-motion";
+import { useCallback } from "react";
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { useTheme } from "@/lib/theme";
 import { AppShell } from "@/components/app/AppShell";
@@ -87,9 +88,12 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 function DashboardContent() {
   const { tokens } = useTheme();
 
-  const { data: overview } = usePolling(() => aegis.getOverview(), 30000);
-  const { data: revenueData } = usePolling(() => aegis.getRevenueTrend(), 30000);
-  const { data: atRisk } = usePolling(() => aegis.getAtRisk(), 30000);
+  const fetchOverview = useCallback(() => aegis.getOverview(), []);
+  const fetchRevenue = useCallback(() => aegis.getRevenueTrend(), []);
+  const fetchAtRisk = useCallback(() => aegis.getAtRisk(), []);
+  const { data: overview } = usePolling(fetchOverview, 30000);
+  const { data: revenueData } = usePolling(fetchRevenue, 30000);
+  const { data: atRisk } = usePolling(fetchAtRisk, 30000);
 
   const metrics = overview?.metrics ?? [];
   const stateBreakdown = overview?.stateBreakdown ?? [];
