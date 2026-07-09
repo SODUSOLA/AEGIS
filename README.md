@@ -28,6 +28,53 @@ AEGIS is that layer.
 
 ---
 
+## Customer Subscription Portal
+
+AEGIS ships with a lightweight, embeddable self-service portal that merchants can integrate directly into their products, allowing customers to manage their subscriptions without requiring custom UI development.
+
+The portal is available at `/portal` and enables customers to:
+
+- View active and past subscription plans
+- Pause or cancel subscriptions
+- Update their payment method using Nomba's tokenized card flow
+- Download billing history and payment receipts
+
+### Embedding the Portal
+
+The portal is designed to be embedded inside an existing application using an iframe.
+
+```html
+<iframe
+  src="https://aegis-nine-omega.vercel.app/portal?token=CUSTOMER_TOKEN"
+  width="100%"
+  height="600"
+  frameborder="0">
+</iframe>
+```
+
+Replace `CUSTOMER_TOKEN` with the customer's Nomba token key scoped to your merchant account.
+
+When the portal loads, it:
+
+1. Reads the token from the URL.
+2. Authenticates the customer against AEGIS.
+3. Retrieves the customer's subscription data.
+4. Displays the customer dashboard automatically.
+
+### White-Label Support
+
+The Customer Subscription Portal is fully white-label ready and automatically adapts to the merchant's product experience.
+
+Features include:
+
+- Brand-aware interface
+- Light mode support
+- Dark mode support
+- Responsive design for seamless embedding
+- Zero additional frontend integration beyond the iframe
+
+---
+
 ## Tech Stack
 
 ### Frontend
