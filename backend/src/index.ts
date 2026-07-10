@@ -29,8 +29,7 @@ async function bootstrap() {
     await startAllWorkers();
     logger.info('Background workers started');
   } catch (error) {
-    logger.error('Failed to start background workers', { error });
-    process.exit(1);
+    logger.warn('Background workers failed to start — API server will still run', { error });
   }
 
   // ─── HTTP Server ───────────────────────────────────
