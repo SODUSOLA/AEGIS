@@ -369,6 +369,34 @@ export const aegis = {
     return { subscriptions: subs, total: subs.length, page, pageSize };
   },
 
+  // ─── Plans ──────────────────────────────────────────
+
+  async getPlans() {
+    const raw = await request<{
+      id: string; name: string; description: string | null;
+      amountKobo: number; currency: string; interval: string;
+      intervalDays: number | null; isActive: boolean; createdAt: string;
+    }[]>('/plans');
+
+    return raw.map((p) => ({
+      id: p.id,
+      name: p.name,
+      amount: p.amountKobo / 100,
+      interval: (p.interval === 'WEEKLY' ? 'Weekly' as const :
+                 p.interval === 'MONTHLY' ? 'Monthly' as const :
+                 p.interval === 'YEARLY' ? 'Yearly' as const : 'Custom' as const),
+      subscribers: 0,
+      created: toDateLabel(p.createdAt),
+    }));
+  },
+
+  async createPlan(data: { name: string; amountKobo: number; currency: string; interval: string; intervalDays?: number }) {
+    return request<{ id: string; name: string; amountKobo: number; currency: string; interval: string }>('/plans', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
   // ─── Auth ───────────────────────────────────────────
 
   async login(email: string, password: string) {

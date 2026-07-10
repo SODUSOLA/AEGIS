@@ -1,8 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, type ReactNode } from "react";
+import { useState, useCallback, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AppShell } from "@/components/app/AppShell";
 import { useTheme } from "@/lib/theme";
+import { aegis } from "@/api/aegis";
+import { usePolling } from "@/hooks/usePolling";
 
 export const Route = createFileRoute("/plans")({
   head: () => ({ meta: [{ title: "Plans — AEGIS" }] }),
@@ -17,12 +19,6 @@ interface Plan {
   subscribers: number;
   created: string;
 }
-
-const SEED: Plan[] = [
-  { id: "p1", name: "Starter", amount: 2000, interval: "Monthly", subscribers: 89, created: "Mar 12, 2026" },
-  { id: "p2", name: "Premium", amount: 5000, interval: "Monthly", subscribers: 124, created: "Feb 04, 2026" },
-  { id: "p3", name: "Enterprise", amount: 15000, interval: "Monthly", subscribers: 31, created: "Jan 22, 2026" },
-];
 
 function PillButton({
   children,
@@ -75,8 +71,11 @@ function PillButton({
 
 function PlansRoute() {
   const { tokens, mode } = useTheme();
-  const [plans] = useState<Plan[]>(SEED);
   const [open, setOpen] = useState(false);
+
+  const fetchPlans = useCallback(() => aegis.getPlans(), []);
+  const { data: plans, refresh } = usePolling<Plan[]>(fetchPlans, 30000);
+  const list = plans ?? [];
 
   return (
     <AppShell
@@ -84,7 +83,7 @@ function PlansRoute() {
       eyebrow="Plan Management"
       actions={<PillButton onClick={() => setOpen(true)}>+ Create Plan</PillButton>}
     >
-      {plans.length === 0 ? (
+      {list.length === 0 ? (
         <EmptyState label="No plans yet" cta="Create your first plan" onClick={() => setOpen(true)} />
       ) : (
         <div
@@ -94,7 +93,7 @@ function PlansRoute() {
             gap: 20,
           }}
         >
-          {plans.map((p, i) => (
+          {list.map((p, i) => (
             <motion.div
               key={p.id}
               initial={{ opacity: 0, y: 12 }}
@@ -108,7 +107,7 @@ function PlansRoute() {
       )}
 
       <AnimatePresence>
-        {open && <CreatePlanModal onClose={() => setOpen(false)} mode={mode} tokens={tokens} />}
+        {open && <CreatePlanModal onClose={() => setOpen(false)} mode={mode} tokens={tokens} refresh={refresh} />}
       </AnimatePresence>
     </AppShell>
   );
@@ -197,16 +196,24 @@ function CreatePlanModal({
   onClose,
   mode,
   tokens,
+  refresh,
 }: {
   onClose: () => void;
   mode: "dark" | "light";
   tokens: ReturnType<typeof useTheme>["tokens"];
+  refresh: () => void;
 }) {
   const inputBg = mode === "dark" ? "#1A1A1A" : "#F8FAFC";
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState("NGN");
-  const [interval, setInterval] = useState("Monthly");
+  const [billingInterval, setBillingInterval] = useState("Monthly");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const INTERVAL_MAP: Record<string, string> = {
+    Weekly: 'WEEKLY', Monthly: 'MONTHLY', Yearly: 'YEARLY', Custom: 'CUSTOM',
+  };
 
   return (
     <motion.div
@@ -247,12 +254,36 @@ function CreatePlanModal({
           Create Plan
         </h2>
         <form
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
-            onClose();
+            setError("");
+            setSaving(true);
+            try {
+              const amountNum = parseFloat(amount);
+              if (!name || !amount || isNaN(amountNum) || amountNum <= 0) {
+                throw new Error("Please fill in all required fields");
+              }
+              await aegis.createPlan({
+                name,
+                amountKobo: Math.round(amountNum * 100),
+                currency,
+                interval: INTERVAL_MAP[billingInterval] || 'MONTHLY',
+              });
+              refresh();
+              onClose();
+            } catch (err) {
+              setError(err instanceof Error ? err.message : "Failed to create plan");
+            } finally {
+              setSaving(false);
+            }
           }}
           style={{ display: "flex", flexDirection: "column", gap: 14 }}
         >
+          {error && (
+            <div style={{ color: "#EF4444", fontSize: 13, padding: "8px 12px", borderRadius: 8, background: "rgba(239,68,68,0.1)" }}>
+              {error}
+            </div>
+          )}
           <Field label="Plan Name" tokens={tokens}>
             <input
               value={name}
@@ -283,7 +314,7 @@ function CreatePlanModal({
               </select>
             </Field>
             <Field label="Billing Interval" tokens={tokens}>
-              <select value={interval} onChange={(e) => setInterval(e.target.value)} style={inputStyle(inputBg, tokens.text, tokens.divider)}>
+              <select value={billingInterval} onChange={(e) => setBillingInterval(e.target.value)} style={inputStyle(inputBg, tokens.text, tokens.divider)}>
                 <option>Weekly</option>
                 <option>Monthly</option>
                 <option>Yearly</option>
@@ -293,7 +324,7 @@ function CreatePlanModal({
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 12 }}>
             <PillButton variant="ghost" onClick={onClose}>Cancel</PillButton>
-            <PillButton type="submit">Create Plan</PillButton>
+            <PillButton type="submit" disabled={saving}>{saving ? "Creating..." : "Create Plan"}</PillButton>
           </div>
         </form>
       </motion.div>
