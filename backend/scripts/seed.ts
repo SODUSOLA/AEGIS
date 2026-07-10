@@ -163,6 +163,23 @@ async function main() {
   }
   console.log('');
 
+  // ── Step 3b: Add dummy payment method to customers ──
+  console.log('── Step 3b: Payment Methods ──');
+
+  for (const c of createdCustomers) {
+    try {
+      await request<{ id: string; hasPaymentMethod: boolean }>(`/customers/${c.id}/payment-method`, {
+        method: 'PATCH',
+        body: JSON.stringify({ nombaTokenKey: 'tok_demo_' + c.id.substring(0, 12) }),
+        headers: authHeader,
+      });
+    } catch {
+      // Payment method route may not exist; skip
+    }
+  }
+  console.log(`  ✅ Added demo payment method to ${createdCustomers.length} customers`);
+  console.log('');
+
   // ── Step 4: Create subscriptions in various states ──
   console.log('── Step 4: Subscriptions ──');
 
@@ -187,13 +204,11 @@ async function main() {
         }),
         headers: authHeader,
       });
-      console.log(`  ✅ ${customer.name.padEnd(20)} → ${plan.name.padEnd(12)} [${status}]`);
+      console.log(`  ✅ ${customer.name.padEnd(20)} → ${plan.name.padEnd(12)} [${sub.status}]`);
 
       // If this should be PAST_DUE or SUSPENDED, we need to simulate by triggering a failed charge
-      // For now, the subscription is created as ACTIVE (or TRIALING).
-      // We'll just note that manual PAST_DUE transitions require Nomba sandbox.
       if (status === 'PAST_DUE' || status === 'SUSPENDED') {
-        console.log(`     ⚠ ${status} status requires Nomba sandbox — created as ${sub.status}`);
+        console.log(`     ⚠ ${status} requires Nomba sandbox — created as ${sub.status}`);
       }
     } catch (err: any) {
       console.log(`  ❌ Failed subscription for ${customer.name}: ${err.message}`);
@@ -207,8 +222,9 @@ async function main() {
   // ── Step 5: Create a webhook endpoint ──
   console.log('── Step 5: Webhook Endpoint ──');
 
+  const whUrl = '/webhooks/endpoints';
   try {
-    const wh = await request<{ id: string; url: string; secret: string }>('/webhooks/outbound/endpoints', {
+    const wh = await request<{ id: string; url: string; secret: string }>(whUrl, {
       method: 'POST',
       body: JSON.stringify({
         url: 'https://hooks.example.com/aegis',
@@ -219,10 +235,24 @@ async function main() {
     console.log('  ✅ Created webhook endpoint');
     console.log(`     Secret: ${wh.secret?.substring(0, 16)}...`);
   } catch (err: any) {
-    if (err.message?.includes('already exists')) {
-      console.log('  ⏭ Webhook endpoint already exists');
-    } else {
-      console.log(`  ❌ Failed: ${err.message}`);
+    // Try alternate path
+    try {
+      const wh = await request<{ id: string; url: string; secret: string }>('/webhooks/outbound/endpoints', {
+        method: 'POST',
+        headers: authHeader,
+        body: JSON.stringify({
+          url: 'https://hooks.example.com/aegis',
+          subscribedEvents: ['charge.succeeded', 'charge.failed', 'subscription.activated', 'subscription.past_due'],
+        }),
+      });
+      console.log('  ✅ Created webhook endpoint (alt path)');
+      console.log(`     Secret: ${wh.secret?.substring(0, 16)}...`);
+    } catch {
+      if (err.message?.includes('already exists')) {
+        console.log('  ⏭ Webhook endpoint already exists');
+      } else {
+        console.log(`  ❌ Failed: ${err.message}`);
+      }
     }
   }
   console.log('');

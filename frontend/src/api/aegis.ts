@@ -271,7 +271,7 @@ export const aegis = {
     const raw = await request<{
       id: string; url: string; subscribedEvents: string[];
       status: string; description: string | null; createdAt: string;
-    }[]>('/webhooks/outbound/endpoints');
+    }[]>('/webhooks/endpoints');
 
     return raw.map((ep) => ({
       id: ep.id,
@@ -287,7 +287,7 @@ export const aegis = {
       id: string; eventType: string; status: string;
       attemptCount: number; lastAttemptedAt: string | null;
       responseStatus: number | null; createdAt: string;
-    }[]>(`/webhooks/outbound/endpoints/${endpointId}/deliveries`);
+    }[]>(`/webhooks/endpoints/${endpointId}/deliveries`);
 
     return raw.map((d) => {
       const statusMap: Record<string, 'delivered' | 'failed' | 'retrying'> = {
@@ -315,14 +315,14 @@ export const aegis = {
     return request<{
       id: string; url: string; secret: string;
       subscribedEvents: string[]; status: string;
-    }>('/webhooks/outbound/endpoints', {
+    }>('/webhooks/endpoints', {
       method: 'POST',
       body: JSON.stringify({ url, subscribedEvents: events }),
     });
   },
 
   async toggleWebhookEndpoint(id: string, active: boolean) {
-    await request<unknown>(`/webhooks/outbound/endpoints/${id}`, {
+    await request<unknown>(`/webhooks/endpoints/${id}`, {
       method: 'PATCH',
       body: JSON.stringify({ status: active ? 'ACTIVE' : 'DISABLED' }),
     });
